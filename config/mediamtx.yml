@@ -1,0 +1,30 @@
+logLevel: info
+logDestinations: [stdout]
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 1024
+
+api: true
+apiAddress: :9997
+metrics: true
+metricsAddress: :9998
+
+rtmp: true
+rtmpAddress: :1935
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+hls: true
+hlsAddress: :8888
+hlsVariant: lowLatency
+webrtc: false
+srt: false
+playback: false
+
+pathDefaults:
+  source: publisher
+  overridePublisher: true
+
+paths:
+  "~^live/stage-([a-zA-Z0-9_-]+)$": {}
+

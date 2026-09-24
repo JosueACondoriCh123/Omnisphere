@@ -1,0 +1,268 @@
+{
+  "version": "1.0.0",
+  "description": "Glosario técnico y reglas de terminología para Nerdearla (ASR + LLM Context)",
+  "terms": [
+    {
+      "canonical": "Kubernetes",
+      "aliases": ["k8s"],
+      "category": "infrastructure",
+      "language": "en",
+      "forbidden_substitutions": [
+        "go ver netes",
+        "cooper netes",
+        "cube netes",
+        "cu bernetes",
+        "governetes"
+      ]
+    },
+    {
+      "canonical": "Spring Boot",
+      "aliases": [],
+      "category": "framework",
+      "language": "en",
+      "forbidden_substitutions": [
+        "bota de primavera",
+        "bota primavera",
+        "primavera boot",
+        "spring but"
+      ]
+    },
+    {
+      "canonical": "OpenTelemetry",
+      "aliases": ["OTel"],
+      "category": "observability",
+      "language": "en",
+      "forbidden_substitutions": [
+        "open telemetría",
+        "telemetría abierta",
+        "open telemetria"
+      ]
+    },
+    {
+      "canonical": "PostgreSQL",
+      "aliases": ["postgres"],
+      "category": "database",
+      "language": "en",
+      "forbidden_substitutions": [
+        "post gres q l",
+        "postres",
+        "post grey"
+      ]
+    },
+    {
+      "canonical": "Kafka",
+      "aliases": ["Apache Kafka"],
+      "category": "messaging",
+      "language": "en",
+      "forbidden_substitutions": [
+        "cafca",
+        "capca"
+      ]
+    },
+    {
+      "canonical": "RabbitMQ",
+      "aliases": [],
+      "category": "messaging",
+      "language": "en",
+      "forbidden_substitutions": [
+        "conejo mq",
+        "rabit mq",
+        "ravioli mq"
+      ]
+    },
+    {
+      "canonical": "Docker",
+      "aliases": [],
+      "category": "containerization",
+      "language": "en",
+      "forbidden_substitutions": [
+        "doquer",
+        "doqueri"
+      ]
+    },
+    {
+      "canonical": "FastAPI",
+      "aliases": [],
+      "category": "framework",
+      "language": "en",
+      "forbidden_substitutions": [
+        "fast api",
+        "fasta pi"
+      ]
+    },
+    {
+      "canonical": "deployar",
+      "aliases": ["deploye", "deployando", "deploy"],
+      "category": "spanglish_devops",
+      "language": "spanglish",
+      "forbidden_substitutions": [
+        "desplegar",
+        "de playar",
+        "de player"
+      ]
+    },
+    {
+      "canonical": "buildear",
+      "aliases": ["buildeando", "buildeo", "build"],
+      "category": "spanglish_devops",
+      "language": "spanglish",
+      "forbidden_substitutions": [
+        "construir",
+        "vil dear",
+        "bil dear"
+      ]
+    },
+    {
+      "canonical": "rollbackear",
+      "aliases": ["rollback", "rollbackeando"],
+      "category": "spanglish_devops",
+      "language": "spanglish",
+      "forbidden_substitutions": [
+        "rodar hacia atrás",
+        "rol baquear"
+      ]
+    },
+    {
+      "canonical": "mergear",
+      "aliases": ["merge", "mergeando"],
+      "category": "spanglish_devops",
+      "language": "spanglish",
+      "forbidden_substitutions": [
+        "fusionar",
+        "mer gear"
+      ]
+    },
+    {
+      "canonical": "pull request",
+      "aliases": ["PR"],
+      "category": "spanglish_devops",
+      "language": "spanglish",
+      "forbidden_substitutions": [
+        "petición de extracción",
+        "pul request"
+      ]
+    },
+    {
+      "canonical": "pod",
+      "aliases": ["pods"],
+      "category": "infrastructure",
+      "language": "en",
+      "forbidden_substitutions": [
+        "pood",
+        "pote",
+        "bote"
+      ]
+    },
+    {
+      "canonical": "cluster",
+      "aliases": ["clusters"],
+      "category": "infrastructure",
+      "language": "en",
+      "forbidden_substitutions": [
+        "clúster",
+        "clauster"
+      ]
+    },
+    {
+      "canonical": "CI/CD",
+      "aliases": ["cicd"],
+      "category": "devops",
+      "language": "en",
+      "forbidden_substitutions": [
+        "si si di",
+        "ce i ce de",
+        "ci cd"
+      ]
+    },
+    {
+      "canonical": "GitHub Actions",
+      "aliases": [],
+      "category": "devops",
+      "language": "en",
+      "forbidden_substitutions": [
+        "acciones de git hub",
+        "git hub acciones"
+      ]
+    },
+    {
+      "canonical": "troubleshooting",
+      "aliases": [],
+      "category": "operations",
+      "language": "en",
+      "forbidden_substitutions": [
+        "trabol shuting",
+        "resolución de problemas"
+      ]
+    },
+    {
+      "canonical": "Automatización",
+      "aliases": ["automatizar", "automatizado"],
+      "category": "devops",
+      "language": "es",
+      "forbidden_substitutions": []
+    },
+    {
+      "canonical": "Runner",
+      "aliases": ["runners"],
+      "category": "devops",
+      "language": "en",
+      "forbidden_substitutions": ["ronner"]
+    },
+    {
+      "canonical": "Artifacts",
+      "aliases": ["artifact"],
+      "category": "devops",
+      "language": "en",
+      "forbidden_substitutions": ["artefactos"]
+    },
+    {
+      "canonical": "Linting",
+      "aliases": ["linter"],
+      "category": "devops",
+      "language": "en",
+      "forbidden_substitutions": ["linti"]
+    },
+    {
+      "canonical": "Cloud-Native",
+      "aliases": ["cloud native"],
+      "category": "architecture",
+      "language": "en",
+      "forbidden_substitutions": []
+    },
+    {
+      "canonical": "gRPC",
+      "aliases": [],
+      "category": "networking",
+      "language": "en",
+      "forbidden_substitutions": ["g rpc"]
+    },
+    {
+      "canonical": "Prometheus",
+      "aliases": [],
+      "category": "observability",
+      "language": "en",
+      "forbidden_substitutions": []
+    },
+    {
+      "canonical": "Service Mesh",
+      "aliases": ["service-mesh"],
+      "category": "networking",
+      "language": "en",
+      "forbidden_substitutions": []
+    },
+    {
+      "canonical": "Canary Deployment",
+      "aliases": ["canary"],
+      "category": "deployment",
+      "language": "en",
+      "forbidden_substitutions": ["canari deployment"]
+    },
+    {
+      "canonical": "Microservicios",
+      "aliases": ["microservices"],
+      "category": "architecture",
+      "language": "es",
+      "forbidden_substitutions": ["micro services"]
+    }
+  ]
+}

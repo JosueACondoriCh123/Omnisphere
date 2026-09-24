@@ -1,0 +1,73 @@
+{
+  "version": "1.0.0",
+  "description": "Ground truth curado palabra por palabra para evaluación de Nerdearla",
+  "samples": [
+    {
+      "id": "stage-en",
+      "title": "International Keynote - Cloud-Native Resilience",
+      "language": "en",
+      "reference": "When building resilient cloud-native architectures with Kubernetes, integrating OpenTelemetry provides end-to-end distributed tracing across all your microservices. We configure Prometheus alerts and deploy our canary deployment through the service mesh using gRPC protocols.",
+      "tier1_hypothesis": "when building resilient cloud native architectures with cube netes integrating open telemetría provides end to end distributed tracing across all your micro services we configure prometheus alerts and deploy our canari deployment through the service mesh using g rpc protocols",
+      "tier2_hypothesis": "When building resilient Cloud-Native architectures with Kubernetes, integrating OpenTelemetry provides end-to-end distributed tracing across all your microservices. We configure Prometheus alerts and deploy our canary deployment through the service mesh using gRPC protocols.",
+      "key_terms": [
+        "Kubernetes",
+        "OpenTelemetry",
+        "Cloud-Native",
+        "gRPC",
+        "Prometheus",
+        "Service Mesh",
+        "Canary Deployment"
+      ]
+    },
+    {
+      "id": "stage-es",
+      "title": "Arquitectura y Backend - Spring Boot y Kafka",
+      "language": "es",
+      "reference": "Para migrar este monolito a microservicios desacoplados, adoptamos Spring Boot y Kafka para procesar eventos en tiempo real. Persistimos los datos transaccionales en PostgreSQL y delegamos las colas de mensajes secundarias a RabbitMQ implementando el patrón CQRS.",
+      "tier1_hypothesis": "para migrar este monolito a microservicios desacoplados adoptamos bota de primavera y cafca para procesar eventos en tiempo real persistimos los datos transaccionales en post gres q l y delegamos las colas de mensajes secundarias a conejo mq implementando el patrón c q r s",
+      "tier2_hypothesis": "Para migrar este monolito a microservicios desacoplados, adoptamos Spring Boot y Kafka para procesar eventos en tiempo real. Persistimos los datos transaccionales en PostgreSQL y delegamos las colas de mensajes secundarias a RabbitMQ implementando el patrón CQRS.",
+      "key_terms": [
+        "Spring Boot",
+        "Kafka",
+        "Microservicios",
+        "PostgreSQL",
+        "RabbitMQ",
+        "CQRS"
+      ]
+    },
+    {
+      "id": "stage-spanglish",
+      "title": "DevOps de Trinchera - Spanglish Técnico",
+      "language": "es",
+      "reference": "Tuvimos que deployar el hotfix de urgencia al cluster porque un pod se cayó y no podíamos mergear el pull request a staging sin hacer un troubleshooting a fondo para no tener que rollbackear todo el release.",
+      "tier1_hypothesis": "tuvimos que desplegar el hot fix de urgencia al clauster porque un pote se cayó y no podíamos fusionar la petición de extracción a staging sin hacer un trabol shuting a fondo para no tener que rodar hacia atrás todo el release",
+      "tier2_hypothesis": "Tuvimos que deployar el hotfix de urgencia al cluster porque un pod se cayó y no podíamos mergear el pull request a staging sin hacer un troubleshooting a fondo para no tener que rollbackear todo el release.",
+      "key_terms": [
+        "deployar",
+        "rollbackear",
+        "cluster",
+        "pod",
+        "mergear",
+        "pull request",
+        "troubleshooting"
+      ]
+    },
+    {
+      "id": "stage-noisy",
+      "title": "Workshop Sala Comunitaria - Audio con Eco y Ruido",
+      "language": "es",
+      "reference": "En este taller vamos a automatizar todo el pipeline de CI/CD utilizando GitHub Actions y contenedores Docker para compilar los artifacts y ejecutar el linting antes de enviarlo al runner.",
+      "tier1_hypothesis": "en este taller vamos a automatizar todo el pipeline de ce i ce de utilizando acciones de git hub y contenedores doquer para compilar los artefactos y ejecutar el linti antes de enviarlo al ronner",
+      "tier2_hypothesis": "En este taller vamos a automatizar todo el pipeline de CI/CD utilizando GitHub Actions y contenedores Docker para compilar los artifacts y ejecutar el linting antes de enviarlo al runner.",
+      "key_terms": [
+        "CI/CD",
+        "Docker",
+        "GitHub Actions",
+        "Automatización",
+        "Runner",
+        "Artifacts",
+        "Linting"
+      ]
+    }
+  ]
+}

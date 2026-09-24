@@ -1,0 +1,16 @@
+{
+  "1": {
+    "name": "Stage 1",
+    "session": "Sesión principal",
+    "languages": ["es", "en"],
+    "glossary": ["Nerdearla", "Buenos Aires", "Latinoamérica"],
+    "speakers": []
+  },
+  "2": {
+    "name": "Stage 2",
+    "session": "Sesión paralela",
+    "languages": ["es", "en"],
+    "glossary": ["Nerdearla"],
+    "speakers": []
+  }
+}

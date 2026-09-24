@@ -1,0 +1,85 @@
+# Agenda y metadatos de contexto de escenarios para Nerdearla
+# Consumido por el ContextProvider para inyección de contexto léxico
+
+stage-en:
+  name: "Stage 1 — International Keynote"
+  session: "Building Resilient Cloud-Native Systems with Kubernetes and OpenTelemetry"
+  languages: ["en"]
+  glossary:
+    - "Kubernetes"
+    - "OpenTelemetry"
+    - "Cloud-Native"
+    - "gRPC"
+    - "Prometheus"
+    - "Service Mesh"
+    - "Ingress"
+    - "Docker"
+    - "DevOps"
+    - "Canary Deployment"
+  speakers:
+    - name: "Sarah Connor"
+      role: "Principal Site Reliability Engineer"
+      bio: "Staff SRE focused on distributed observability and resilience"
+
+stage-es:
+  name: "Stage 2 — Arquitectura y Backend"
+  session: "De Monolitos a Microservicios con Spring Boot y Kafka"
+  languages: ["es"]
+  glossary:
+    - "Spring Boot"
+    - "Kafka"
+    - "Microservicios"
+    - "PostgreSQL"
+    - "Event-Driven"
+    - "RabbitMQ"
+    - "CQRS"
+    - "Latencia"
+    - "Backend"
+    - "Desacoplamiento"
+  speakers:
+    - name: "Martín Silva"
+      role: "Lead Software Architect"
+      bio: "Especialista en sistemas distribuidos y arquitectura reactiva"
+
+stage-spanglish:
+  name: "Stage 3 — DevOps de Trinchera"
+  session: "Troubleshooting en Producción: Deployar, Rollbackear y no Morir en el Intento"
+  languages: ["es", "en"]
+  glossary:
+    - "deployar"
+    - "buildear"
+    - "rollbackear"
+    - "troubleshooting"
+    - "mergear"
+    - "pull request"
+    - "cluster"
+    - "pod"
+    - "pipeline"
+    - "staging"
+    - "feature flag"
+    - "hotfix"
+    - "release"
+    - "commit"
+    - "crashloop"
+  speakers:
+    - name: "Gonzalo Méndez"
+      role: "DevOps Engineer"
+      bio: "Ingeniero de infraestructura lidiando con incidentes en vivo"
+
+stage-noisy:
+  name: "Stage 4 — Sala Comunitaria / Workshop (Audio con Eco)"
+  session: "Taller Práctico: CI/CD y Automatización con Docker y GitHub Actions"
+  languages: ["es"]
+  glossary:
+    - "CI/CD"
+    - "Docker"
+    - "GitHub Actions"
+    - "Automatización"
+    - "Runner"
+    - "Cache"
+    - "Artifacts"
+    - "Linting"
+  speakers:
+    - name: "Valeria Rossi"
+      role: "Cloud Consultant"
+      bio: "Mentora de workshops comunitarios"

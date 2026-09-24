@@ -1,0 +1,182 @@
+{
+  "version": "1.0.0",
+  "num_samples": 4,
+  "t1_mean_wer": 0.3552,
+  "t2_mean_wer": 0.0,
+  "delta_mean_wer": 0.3552,
+  "t1_mean_term_acc": 0.1845,
+  "t2_mean_term_acc": 1.0,
+  "delta_mean_term_acc": 0.8155,
+  "samples": [
+    {
+      "sample_id": "stage-en",
+      "title": "International Keynote - Cloud-Native Resilience",
+      "language": "en",
+      "t1_wer": 0.25,
+      "t2_wer": 0.0,
+      "delta_wer": 0.25,
+      "t1_term_accuracy": 0.4286,
+      "t2_term_accuracy": 1.0,
+      "delta_term_accuracy": 0.5714,
+      "t1_traps": [
+        {
+          "term": "Kubernetes",
+          "forbidden_text_found": "cube netes"
+        },
+        {
+          "term": "OpenTelemetry",
+          "forbidden_text_found": "open telemetría"
+        },
+        {
+          "term": "gRPC",
+          "forbidden_text_found": "g rpc"
+        },
+        {
+          "term": "Canary Deployment",
+          "forbidden_text_found": "canari deployment"
+        }
+      ],
+      "t2_traps": [],
+      "t1_misses": [
+        "Kubernetes",
+        "OpenTelemetry",
+        "gRPC",
+        "Canary Deployment"
+      ],
+      "t2_misses": []
+    },
+    {
+      "sample_id": "stage-es",
+      "title": "Arquitectura y Backend - Spring Boot y Kafka",
+      "language": "es",
+      "t1_wer": 0.3784,
+      "t2_wer": 0.0,
+      "delta_wer": 0.3784,
+      "t1_term_accuracy": 0.1667,
+      "t2_term_accuracy": 1.0,
+      "delta_term_accuracy": 0.8333,
+      "t1_traps": [
+        {
+          "term": "Spring Boot",
+          "forbidden_text_found": "bota de primavera"
+        },
+        {
+          "term": "Kafka",
+          "forbidden_text_found": "cafca"
+        },
+        {
+          "term": "PostgreSQL",
+          "forbidden_text_found": "post gres q l"
+        },
+        {
+          "term": "RabbitMQ",
+          "forbidden_text_found": "conejo mq"
+        }
+      ],
+      "t2_traps": [],
+      "t1_misses": [
+        "Spring Boot",
+        "Kafka",
+        "PostgreSQL",
+        "RabbitMQ",
+        "CQRS"
+      ],
+      "t2_misses": []
+    },
+    {
+      "sample_id": "stage-spanglish",
+      "title": "DevOps de Trinchera - Spanglish Técnico",
+      "language": "es",
+      "t1_wer": 0.4054,
+      "t2_wer": 0.0,
+      "delta_wer": 0.4054,
+      "t1_term_accuracy": 0.0,
+      "t2_term_accuracy": 1.0,
+      "delta_term_accuracy": 1.0,
+      "t1_traps": [
+        {
+          "term": "deployar",
+          "forbidden_text_found": "desplegar"
+        },
+        {
+          "term": "rollbackear",
+          "forbidden_text_found": "rodar hacia atrás"
+        },
+        {
+          "term": "cluster",
+          "forbidden_text_found": "clauster"
+        },
+        {
+          "term": "pod",
+          "forbidden_text_found": "pote"
+        },
+        {
+          "term": "mergear",
+          "forbidden_text_found": "fusionar"
+        },
+        {
+          "term": "pull request",
+          "forbidden_text_found": "petición de extracción"
+        },
+        {
+          "term": "troubleshooting",
+          "forbidden_text_found": "trabol shuting"
+        }
+      ],
+      "t2_traps": [],
+      "t1_misses": [
+        "deployar",
+        "rollbackear",
+        "cluster",
+        "pod",
+        "mergear",
+        "pull request",
+        "troubleshooting"
+      ],
+      "t2_misses": []
+    },
+    {
+      "sample_id": "stage-noisy",
+      "title": "Workshop Sala Comunitaria - Audio con Eco y Ruido",
+      "language": "es",
+      "t1_wer": 0.3871,
+      "t2_wer": 0.0,
+      "delta_wer": 0.3871,
+      "t1_term_accuracy": 0.1429,
+      "t2_term_accuracy": 1.0,
+      "delta_term_accuracy": 0.8571,
+      "t1_traps": [
+        {
+          "term": "Docker",
+          "forbidden_text_found": "doquer"
+        },
+        {
+          "term": "GitHub Actions",
+          "forbidden_text_found": "acciones de git hub"
+        },
+        {
+          "term": "Runner",
+          "forbidden_text_found": "ronner"
+        },
+        {
+          "term": "Artifacts",
+          "forbidden_text_found": "artefactos"
+        },
+        {
+          "term": "Linting",
+          "forbidden_text_found": "linti"
+        }
+      ],
+      "t2_traps": [],
+      "t1_misses": [
+        "CI/CD",
+        "Docker",
+        "GitHub Actions",
+        "Runner",
+        "Artifacts",
+        "Linting"
+      ],
+      "t2_misses": []
+    }
+  ]
+}

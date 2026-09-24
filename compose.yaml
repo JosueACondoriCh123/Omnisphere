@@ -1,0 +1,129 @@
+name: nerdearla-plumbing
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [nerdearla]
+
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.0
+    restart: unless-stopped
+    ports:
+      - "${RTMP_BIND_ADDRESS:-0.0.0.0}:${PUBLIC_RTMP_PORT:-1935}:1935"
+      - "127.0.0.1:8554:8554" # RTSP internal/debug
+      - "127.0.0.1:8888:8888" # HLS preview
+      - "127.0.0.1:9998:9998" # MediaMTX Prometheus metrics
+    volumes:
+      - ./config/mediamtx.yml:/mediamtx.yml:ro
+    networks: [nerdearla]
+
+  plumbing:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      MEDIAMTX_API_URL: ${MEDIAMTX_API_URL:-http://mediamtx:9997}
+      MEDIAMTX_RTSP_BASE: ${MEDIAMTX_RTSP_BASE:-rtsp://mediamtx:8554}
+      INTERNAL_API_BASE: ${INTERNAL_API_BASE:-http://127.0.0.1:8080}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-dev-only-token}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      PUBLIC_RTMP_HOST: ${PUBLIC_RTMP_HOST:-localhost}
+      PUBLIC_RTMP_PORT: ${PUBLIC_RTMP_PORT:-1935}
+      CONTEXT_URL_TEMPLATE: ${CONTEXT_URL_TEMPLATE:-}
+      TRANSCRIBER_URL: ${TRANSCRIBER_URL:-}
+      STAGE_CONTEXT_FILE: /srv/nerdearla/config/stages.json
+      VAD_THRESHOLD: ${VAD_THRESHOLD:-0.55}
+      VAD_MIN_SILENCE_MS: ${VAD_MIN_SILENCE_MS:-420}
+      VAD_SPEECH_PAD_MS: ${VAD_SPEECH_PAD_MS:-140}
+      MAX_SEGMENT_SECONDS: ${MAX_SEGMENT_SECONDS:-28}
+      FFMPEG_RECONNECT_SECONDS: ${FFMPEG_RECONNECT_SECONDS:-1.0}
+      STREAM_GRACE_SECONDS: ${STREAM_GRACE_SECONDS:-15}
+      MEDIAMTX_POLL_SECONDS: ${MEDIAMTX_POLL_SECONDS:-1.0}
+      CAPTURE_NODE_STALE_SECONDS: ${CAPTURE_NODE_STALE_SECONDS:-15}
+      WORKER_STALE_SECONDS: ${WORKER_STALE_SECONDS:-12}
+    ports:
+      - "${API_BIND_ADDRESS:-0.0.0.0}:8080:8080"
+    volumes:
+      - ./config/stages.json:/srv/nerdearla/config/stages.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+    networks: [nerdearla]
+
+  # Transcription and translation behind TRANSCRIBER_URL. Set
+  # TRANSCRIBER_URL=http://transcriber:8090/v1/audio/segments to enable it;
+  # the room worker degrades cleanly when it is absent.
+  transcriber:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    entrypoint:
+      ["uvicorn", "transcriber.main:app", "--host", "0.0.0.0", "--port", "8090"]
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-gemini-3.5-flash}
+      REQUEST_TIMEOUT_SECONDS: ${TRANSCRIBER_TIMEOUT_SECONDS:-12}
+      MAX_SEGMENT_SECONDS: ${TRANSCRIBER_MAX_SEGMENT_SECONDS:-40}
+    expose:
+      - "8090"
+    healthcheck:
+      test:
+        ["CMD", "python", "-c",
+         "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 5
+    networks: [nerdearla]
+
+  # Opt-in edge publisher. Example:
+  # docker compose --profile capture run --rm capture-node --stage 1 --demo
+  capture-node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: [capture]
+    init: true
+    entrypoint: ["python", "-m", "app.capture_node"]
+    environment:
+      CAPTURE_API_URL: http://plumbing:8080
+      CAPTURE_RTMP_SERVER: rtmp://mediamtx:1935
+    depends_on:
+      - mediamtx
+      - plumbing
+    networks: [nerdearla]
+
+  # Deterministic ingest for demos and smoke tests (no audio hardware needed).
+  demo-publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: [demo]
+    restart: unless-stopped
+    init: true
+    entrypoint: ["python", "-m", "app.capture_node"]
+    command: ["--stage", "1", "--demo"]
+    environment:
+      CAPTURE_API_URL: http://plumbing:8080
+      CAPTURE_RTMP_SERVER: rtmp://mediamtx:1935
+    depends_on:
+      - mediamtx
+      - plumbing
+    networks: [nerdearla]
+
+networks:
+  nerdearla:
+    driver: bridge

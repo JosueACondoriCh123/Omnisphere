@@ -1,0 +1,29 @@
+# Vercel sirve solo el frontend estático de web/. El backend Python (FastAPI,
+# torch, faster-whisper) corre en la app de escritorio: si Vercel lo ve,
+# intenta empaquetarlo como función y supera el límite de 500 MB.
+requirements.txt
+requirements-dev.txt
+pytest.ini
+Dockerfile
+compose.yaml
+app/
+transcriber/
+contracts/
+tests/
+training/
+evaluation/
+scripts/
+build/
+data/
+desktop/
+agent-work/
+config/
+web/data/
+web/server/
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+web/e2e/
+web/vercel-e2e/
+web/scripts/

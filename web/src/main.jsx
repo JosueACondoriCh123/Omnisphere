@@ -49,6 +49,7 @@ createRoot(document.getElementById("root")).render(
         {!isPublicDeployment && <Route path="/operator/broadcasts" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/archive" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/integrations" element={<Admin />} />}
+        {!isPublicDeployment && <Route path="/operator/models" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/system" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/setup" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/output/:stageId" element={<OutputStage />} />}

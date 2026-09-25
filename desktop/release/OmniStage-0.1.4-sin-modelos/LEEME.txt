@@ -1,0 +1,14 @@
+OmniStage 0.1.4 - instalador comprimido SIN MODELOS
+
+1. Extraer este .7z en la PC final (con 7-Zip u otro extractor compatible).
+2. Abrir PowerShell en la carpeta extraída y verificar el instalador:
+   powershell -ExecutionPolicy Bypass -File .\VERIFICAR.ps1
+3. Ejecutar "OmniStage Setup 0.1.4.exe" como administrador.
+4. Abrir OmniStage, crear el operador y entrar en Modelos locales.
+5. Descargar los modelos desde la app o importarlos desde una carpeta aparte.
+6. Esperar a que Gemma aparezca activo y ejecutar una prueba de traducción.
+
+Este paquete contiene la aplicación y sus motores, pero NO los pesos de
+Gemma ni faster-whisper. No contiene claves API ni grabaciones privadas.
+El instalador no está firmado. Requiere Windows x64; la ruta local necesita
+una GPU NVIDIA compatible. Gemini es opcional y requiere su propia clave.

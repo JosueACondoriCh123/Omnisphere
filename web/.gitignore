@@ -16,6 +16,10 @@ playwright-report
 blob-report
 dev-dist
 .vercel
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # Editor directories and files
 .vscode/*

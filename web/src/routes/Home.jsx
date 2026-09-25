@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
-import { hasLiveBackend, publicApiUrl } from "../lib/publicBackend.js";
+import { PublicFooter, PublicHeader } from "../components/PublicChrome.jsx";
+import { usePublicStages } from "../lib/publicStages.js";
 import { useSurfaceClass } from "../lib/stages.js";
 
 const features = [
@@ -11,37 +12,12 @@ const features = [
 
 export default function Home() {
   useSurfaceClass("home");
-  const [stages, setStages] = useState([]);
-  const [stageState, setStageState] = useState(hasLiveBackend ? "loading" : "unavailable");
-
-  useEffect(() => {
-    if (!hasLiveBackend) return undefined;
-    let live = true;
-    async function load() {
-      try {
-        const response = await fetch(publicApiUrl("/api/stages"));
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const body = await response.json();
-        if (live) {
-          setStages(Array.isArray(body.items) ? body.items : []);
-          setStageState("ready");
-        }
-      } catch {
-        if (live) setStageState("unavailable");
-      }
-    }
-    load();
-    const timer = setInterval(load, 5000);
-    return () => { live = false; clearInterval(timer); };
-  }, []);
+  const { items: stages, status: stageState } = usePublicStages();
+  useEffect(() => { document.title = "OmniStage | Subtítulos en vivo para Nerdearla 2026"; }, []);
 
   return (
     <main className="home-root landing-page" id="top">
-      <header className="site-header landing-header">
-        <Link className="wordmark" to="/" aria-label="OmniStage, inicio">OMNI<span>STAGE</span></Link>
-        <nav aria-label="Principal"><a href="#experiencia">La experiencia</a><a href="#salas">Escenarios</a></nav>
-        <a className="landing-header-cta" href="#salas">Ver salas <span aria-hidden="true">↗</span></a>
-      </header>
+      <PublicHeader />
 
       <section className="hero landing-hero" aria-labelledby="landing-title">
         <div className="landing-hero-copy">
@@ -71,11 +47,11 @@ export default function Home() {
         {stageState === "loading" && <div className="landing-stage-message" role="status"><span className="landing-stage-icon" aria-hidden="true">⌁</span><div><h3>Buscando escenarios…</h3><p>Estamos consultando la programación en vivo.</p></div></div>}
         {stageState === "unavailable" && <div className="landing-stage-message" role="status"><span className="landing-stage-icon" aria-hidden="true">⌁</span><div><h3>Los escenarios se publicarán aquí</h3><p>La programación en vivo aparecerá cuando se conecte la transmisión. Mientras tanto, podés explorar una muestra de la interfaz.</p><Link to="/app?mock=1">Abrir muestra <span aria-hidden="true">↗</span></Link></div></div>}
         {stageState === "ready" && stages.length === 0 && <div className="landing-stage-message" role="status"><span className="landing-stage-icon" aria-hidden="true">⌁</span><div><h3>Próximamente, en vivo</h3><p>Todavía no hay salas publicadas. Volvé cuando empiecen las charlas.</p></div></div>}
-        {stageState === "ready" && stages.length > 0 && <div className="stage-grid">{stages.map((stage, index) => <Link className="stage-card" to={`/app?stage=${encodeURIComponent(stage.stage_id)}&lang=es`} key={stage.stage_id}><div className="stage-card-top"><span>ESCENARIO {String(index + 1).padStart(2, "0")}</span><span className={stage.audio_up && stage.provider_ready ? "live-pill" : "quiet-pill"}>{stage.audio_up ? stage.provider_ready ? "EN VIVO" : "SIN SUBTÍTULOS" : stage.active_session_id ? "SIN SEÑAL" : "EN ESPERA"}</span></div><h3>{stage.name || `Sala ${stage.stage_id}`}</h3><p>{stage.session || "La próxima charla aparecerá aquí."}</p><div className="stage-card-bottom"><span>ESPAÑOL / ENGLISH</span><span aria-hidden="true">↗</span></div></Link>)}</div>}
+        {stageState === "ready" && stages.length > 0 && <div className="stage-grid">{stages.map((stage, index) => <Link className="stage-card" to={`/app?stage=${encodeURIComponent(stage.stage_id)}&lang=es`} key={stage.stage_id}><div className="stage-card-top"><span>ESCENARIO {String(index + 1).padStart(2, "0")}</span><span className={stage.audio_up && stage.provider_ready ? "live-pill" : "quiet-pill"}>{stage.audio_up && stage.provider_ready ? "EN VIVO" : stage.session_id || stage.active_session_id || stage.session ? "SESIÓN ABIERTA" : "EN ESPERA"}</span></div><h3>{stage.name || `Sala ${stage.stage_id}`}</h3><p>{stage.session || "La próxima charla aparecerá aquí."}</p><div className="stage-card-bottom"><span>ESPAÑOL / ENGLISH</span><span aria-hidden="true">↗</span></div></Link>)}</div>}
       </section>
 
       <section className="landing-closing"><p className="section-index">OMNISTAGE / NERDEARLA 2026</p><h2>La charla sigue.<br /><em>Vos también.</em></h2><a className="hero-action" href="#salas">Elegir escenario <span aria-hidden="true">↗</span></a></section>
-      <footer className="site-footer landing-footer"><span className="wordmark">OMNI<span>STAGE</span></span><span>Subtítulos para encontrarnos en cada idea.</span><a href="#top">Volver arriba ↑</a></footer>
+      <PublicFooter />
     </main>
   );
 }

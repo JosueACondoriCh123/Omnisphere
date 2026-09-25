@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "db:serve": "node server/start.js",
+    "test:db": "node --test server/*.test.js",
     "build": "vite build",
     "build:vercel": "vite build --mode vercel",
     "lint": "oxlint",

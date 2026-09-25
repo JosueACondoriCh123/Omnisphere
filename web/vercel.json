@@ -6,6 +6,9 @@
   "rewrites": [
     { "source": "/", "destination": "/index.html" },
     { "source": "/app", "destination": "/index.html" },
+    { "source": "/dashboard", "destination": "/index.html" },
+    { "source": "/salas", "destination": "/index.html" },
+    { "source": "/guia", "destination": "/index.html" },
     { "source": "/overlay/:stageId", "destination": "/index.html" },
     { "source": "/captions/clean", "destination": "/index.html" }
   ],

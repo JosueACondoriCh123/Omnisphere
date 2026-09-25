@@ -6,7 +6,6 @@ const sections = [
   ["/operator/broadcasts", "Transmisiones"],
   ["/operator/archive", "Archivo"],
   ["/operator/integrations", "Integraciones"],
-  ["/operator/models", "Modelos locales"],
   ["/operator/system", "Sistema y operadores"],
   ["/operator/setup", "Primeros pasos"],
 ];

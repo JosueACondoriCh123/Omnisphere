@@ -142,7 +142,7 @@ export default function App() {
           <span aria-hidden="true" />
           {displayLabel}
         </p>
-        <Link className="back-link" to="/">Todas las salas ↗</Link>
+        <Link className="back-link" to="/salas">Todas las salas ↗</Link>
       </header>
       <section className="prompter" aria-label="Subtítulos en vivo">
         <p className="eyebrow" aria-hidden="true">

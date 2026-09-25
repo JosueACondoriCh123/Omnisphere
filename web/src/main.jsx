@@ -10,11 +10,15 @@ import Overlay from "./routes/Overlay.jsx";
 import Home from "./routes/Home.jsx";
 import OutputStage from "./routes/OutputStage.jsx";
 import NotFound from "./routes/NotFound.jsx";
+import Dashboard from "./routes/Dashboard.jsx";
+import Rooms from "./routes/Rooms.jsx";
+import Guide from "./routes/Guide.jsx";
 import { isPublicDeployment } from "./lib/publicBackend.js";
 import "./index.css";
 import "./glass.css";
 import "./night.css";
 import "./landing.css";
+import "./public-pages.css";
 
 // OBS must start transparent on its very first painted frame, before effects run.
 if (globalThis.location?.pathname.startsWith("/overlay/")) {
@@ -35,6 +39,9 @@ createRoot(document.getElementById("root")).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/salas" element={<Rooms />} />
+        <Route path="/guia" element={<Guide />} />
         <Route path="/app" element={<App />} />
         <Route path="/overlay/:stageId" element={<Overlay />} />
         {!isPublicDeployment && <Route path="/operator" element={<Admin />} />}
@@ -42,7 +49,6 @@ createRoot(document.getElementById("root")).render(
         {!isPublicDeployment && <Route path="/operator/broadcasts" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/archive" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/integrations" element={<Admin />} />}
-        {!isPublicDeployment && <Route path="/operator/models" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/system" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/setup" element={<Admin />} />}
         {!isPublicDeployment && <Route path="/operator/output/:stageId" element={<OutputStage />} />}

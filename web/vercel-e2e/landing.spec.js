@@ -24,3 +24,16 @@ test("public build has no operator screen", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /Nos vemos en el escenario/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Acceso de operadores" })).toHaveCount(0);
 });
+
+test("dashboard and new pages work before a backend is connected", async ({ page }) => {
+  const apiRequests = [];
+  page.on("request", (request) => { if (request.url().includes("/api/")) apiRequests.push(request.url()); });
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: /Todo el evento/ })).toBeVisible();
+  await expect(page.getByText("Estado no disponible").first()).toBeVisible();
+  await page.getByRole("link", { name: "Salas", exact: true }).click();
+  await expect(page.locator(".public-stage-card")).toHaveCount(10);
+  await page.getByRole("link", { name: "Guía", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Tres pasos." })).toBeVisible();
+  expect(apiRequests).toEqual([]);
+});

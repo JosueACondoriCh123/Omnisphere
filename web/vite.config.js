@@ -60,7 +60,7 @@ export default defineConfig(({ mode }) => {
   test: {
     environment: 'node',
     reporters: ['verbose'],
-    exclude: ['e2e/**', 'vercel-e2e/**', 'node_modules/**', 'dist/**'],
+    exclude: ['e2e/**', 'vercel-e2e/**', 'server/**', 'node_modules/**', 'dist/**'],
   },
   }
 })

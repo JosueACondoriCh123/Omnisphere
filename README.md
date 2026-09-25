@@ -74,6 +74,8 @@ OmniStage no requiere Docker ni Redis en producción. El instalador empaqueta la
 
 **Descargar esta entrega:** en la carpeta compartida del proyecto, copiar a la PC de destino el archivo `desktop/release/OmniStage-0.1.4-sin-modelos.7z` (856 MiB). El `.7z` contiene el instalador de Windows, instrucciones y un verificador SHA256. Los binarios de `desktop/release/` no se suben a Git; si estás leyendo este README en el repositorio, necesitás obtener el archivo desde la carpeta de entrega o pedir el enlace de distribución al equipo.
 
+En GitHub podés consultar la [carpeta de entregas](desktop/release/README.md) y sus archivos de verificación. Para ofrecer una descarga pública, adjuntá el `.7z` a una **GitHub Release** y enlazá allí el archivo; no está publicado como descarga pública todavía.
+
 1. Extraer el `.7z` con 7-Zip u otro programa compatible.
 2. Abrir PowerShell en la carpeta extraída y ejecutar `powershell -ExecutionPolicy Bypass -File .\VERIFICAR.ps1`.
 3. Ejecutar `OmniStage Setup 0.1.4.exe` como administrador y crear la cuenta inicial al abrir la app.

@@ -21,4 +21,10 @@ training/private/
 private/
 desktop/node_modules/
 desktop/out/
-desktop/release/
+desktop/release/*
+!desktop/release/README.md
+!desktop/release/OmniStage-0.1.4-sin-modelos/
+desktop/release/OmniStage-0.1.4-sin-modelos/*
+!desktop/release/OmniStage-0.1.4-sin-modelos/LEEME.txt
+!desktop/release/OmniStage-0.1.4-sin-modelos/CHECKSUMS.sha256
+!desktop/release/OmniStage-0.1.4-sin-modelos/VERIFICAR.ps1

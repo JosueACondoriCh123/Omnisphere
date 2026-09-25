@@ -44,11 +44,29 @@ docker compose --profile capture run --rm capture-node --stage 1 --server rtmp:/
 
 ## OBS
 
-- Server: `rtmp://192.168.10.20:1935/live`
-- Stream Key: `stage-1`
+- En **Ajustes → Emisión**, elegir servicio `Personalizado`.
+- Server local: `rtmp://localhost:1935/live`.
+- Server en LAN: `rtmp://192.168.10.20:1935/live`.
+- Stream Key: `stage-1`.
+- Configurar el micrófono en el mezclador y pulsar **Iniciar transmisión**.
+- Agregar una **Fuente de navegador** de 1920×1080 con
+  `http://localhost:8088/overlay/1?theme=obs&lang=es&size=md`.
 
 Cada sala cambia sólo la clave (`stage-2`, `stage-auditorio`, etc.). Verificar
 la llegada en `http://192.168.10.20:8080/api/metrics/stages/1`.
+
+Para observar la transición real, hablar al menos tres segundos y hacer una
+pausa. El draft aparece en gris y el commit que llega al cierre de Silero
+solidifica el mismo bloque. La fuente debe conservar transparencia sobre la
+cámara y dejar libre el 5 % de margen seguro.
+
+Con el stream activo, validar español, inglés y reconexión:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\validate_live_demo.py --stage 1 --langs es,en
+```
+
+El resultado correcto termina con `LIVE_E2E_OK ... overlap=1 snapshot=1`.
 
 ## Diagnóstico rápido
 

@@ -11,7 +11,6 @@ import json
 import logging
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -89,7 +88,7 @@ def generate_synthetic_fixture(stage_id: str, output_path: Path, is_noisy: bool 
         str(output_path),
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         logger.error("Fallo ffmpeg al generar fixture: %s", result.stderr)
     else:

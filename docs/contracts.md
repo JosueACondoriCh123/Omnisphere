@@ -74,6 +74,11 @@ El transcriptor puede devolver eventos para publicar:
 }
 ```
 
+Mientras una cláusula sigue abierta, el worker publica snapshots solapados cada
+`PARTIAL_SEGMENT_SECONDS` (1,5 s por defecto). Todos conservan el mismo `t0_ms`
+y aumentan `t1_ms`; el cierre de Silero publica el commit final sobre la misma
+ventana. El consumidor reconcilia exclusivamente por timestamps, nunca por texto.
+
 También se puede publicar directamente con el token interno:
 
 ```http
@@ -114,6 +119,8 @@ WebSocket ya provee control frames para mantener la conexión.
 - `GET /api/metrics/stages/{id}`: estado y latencias JSON por sala.
 - `GET /api/metrics/stages`: todas las salas conocidas.
 - `GET /metrics`: formato Prometheus.
+- `GET /readyz`: responde 200 sólo con MediaMTX, Redis y Gemini/transcriber
+  listos. `GET /healthz` sigue siendo liveness.
 - Alarma `audio_signal_down`: stream listo sin PCM fresco durante 5 s.
 - Alarma `latency_over_1500ms`: red + inferencia supera 1.5 s.
 - Alarma `transcriber_socket_down`: worker degradado o fallido en transcripción.

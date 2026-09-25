@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.responses import JSONResponse, Response
 
 from transcriber.audio import pcm_duration_ms
+from transcriber.bus import RedisTranscriber
 from transcriber.config import TranscriberSettings, get_settings
 from transcriber.context import decode_stage_context
 from transcriber.engine import (
     EngineUnavailable,
     GeminiEngine,
+    StubTranscriptionEngine,
     TranscriptionEngine,
 )
 
@@ -24,7 +29,49 @@ logger = logging.getLogger("nerdearla.transcriber")
 
 STAGE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
-app = FastAPI(title="Nerdearla transcriber", version="0.1.0")
+_bus: RedisTranscriber | None = None
+_probe_task: asyncio.Task[None] | None = None
+
+
+async def _probe_engine(engine: GeminiEngine, settings: TranscriberSettings) -> None:
+    while True:
+        ready = bool(engine.health_status()["ready"])
+        delay = (
+            settings.model_probe_success_seconds
+            if ready
+            else settings.model_probe_retry_seconds
+        )
+        await asyncio.sleep(delay)
+        await engine.probe()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _bus, _probe_task
+    settings = get_settings()
+    engine = get_engine(settings)
+    if _bus is None:
+        _bus = RedisTranscriber(settings, engine)
+    if settings.bus_enabled:
+        await _bus.start()
+    if isinstance(engine, GeminiEngine):
+        await engine.probe()
+        _probe_task = asyncio.create_task(
+            _probe_engine(engine, settings), name="gemini-model-probe"
+        )
+    try:
+        yield
+    finally:
+        if _probe_task is not None:
+            _probe_task.cancel()
+            await asyncio.gather(_probe_task, return_exceptions=True)
+            _probe_task = None
+        if _bus is not None:
+            await _bus.close()
+            _bus = None
+
+
+app = FastAPI(title="Nerdearla transcriber", version="0.1.0", lifespan=lifespan)
 
 # Monotonic per stage. Note for integration: the room worker keeps its own
 # counter for vad_start/vad_end events, so the two sequences interleave on the
@@ -39,8 +86,15 @@ def get_engine(
 ) -> TranscriptionEngine:
     global _engine
     if _engine is None:
-        _engine = GeminiEngine(settings)
+        if settings.transcription_engine == "stub":
+            _engine = StubTranscriptionEngine(settings)
+        else:
+            _engine = GeminiEngine(settings)
     return _engine
+
+
+def get_bus() -> RedisTranscriber | None:
+    return _bus
 
 
 def next_sequence(stage_id: str) -> int:
@@ -53,12 +107,66 @@ def next_sequence(stage_id: str) -> int:
 async def health(
     settings: Annotated[TranscriberSettings, Depends(get_settings)],
 ) -> dict[str, Any]:
+    bus_status = _bus.health_status() if _bus is not None else {
+        "enabled": settings.bus_enabled,
+        "status": "disabled",
+        "redis_connected": False,
+        "queued": 0,
+        "processed": 0,
+        "published": 0,
+        "silent": 0,
+        "failures": 0,
+        "queue_overflows": 0,
+        "drafts_coalesced": 0,
+        "last_error": None,
+    }
+    engine_status = (
+        _engine.health_status()
+        if _engine is not None and hasattr(_engine, "health_status")
+        else {
+            "ready": False,
+            "last_error": "engine not initialized",
+            "last_checked_ms": None,
+            "last_success_ms": None,
+        }
+    )
     return {
         "service": settings.service_name,
         "model": settings.transcription_model,
         "api_key_configured": bool(settings.gemini_api_key),
         "stages_seen": sorted(_sequences),
+        "bus": bus_status,
+        "engine": engine_status,
+        "engine_mode": settings.transcription_engine,
     }
+
+
+@app.get("/readyz")
+async def readyz(
+    settings: Annotated[TranscriberSettings, Depends(get_settings)],
+) -> Response:
+    bus_status = _bus.health_status() if _bus is not None else {
+        "redis_connected": False,
+        "status": "disabled",
+    }
+    engine_status = (
+        _engine.health_status()
+        if _engine is not None and hasattr(_engine, "health_status")
+        else {"ready": False, "last_error": "engine not initialized"}
+    )
+    bus_ready = not settings.bus_enabled or bool(bus_status["redis_connected"])
+    if settings.transcription_engine == "stub":
+        ready = bus_ready
+    else:
+        ready = bool(settings.gemini_api_key) and bool(engine_status.get("ready")) and bus_ready
+    payload = {
+        "status": "ready" if ready else "not_ready",
+        "model": settings.transcription_model,
+        "api_key_configured": bool(settings.gemini_api_key),
+        "engine": engine_status,
+        "bus": bus_status,
+    }
+    return JSONResponse(payload, status_code=200 if ready else 503)
 
 
 @app.post("/v1/audio/segments")

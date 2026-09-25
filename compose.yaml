@@ -40,10 +40,12 @@ services:
       PUBLIC_RTMP_PORT: ${PUBLIC_RTMP_PORT:-1935}
       CONTEXT_URL_TEMPLATE: ${CONTEXT_URL_TEMPLATE:-}
       TRANSCRIBER_URL: ${TRANSCRIBER_URL:-}
+      TRANSCRIBER_HEALTH_URL: ${TRANSCRIBER_HEALTH_URL:-http://transcriber:8090/readyz}
       STAGE_CONTEXT_FILE: /srv/nerdearla/config/stages.json
       VAD_THRESHOLD: ${VAD_THRESHOLD:-0.55}
       VAD_MIN_SILENCE_MS: ${VAD_MIN_SILENCE_MS:-420}
       VAD_SPEECH_PAD_MS: ${VAD_SPEECH_PAD_MS:-140}
+      PARTIAL_SEGMENT_SECONDS: ${PARTIAL_SEGMENT_SECONDS:-1.5}
       MAX_SEGMENT_SECONDS: ${MAX_SEGMENT_SECONDS:-28}
       FFMPEG_RECONNECT_SECONDS: ${FFMPEG_RECONNECT_SECONDS:-1.0}
       STREAM_GRACE_SECONDS: ${STREAM_GRACE_SECONDS:-15}
@@ -61,9 +63,9 @@ services:
         condition: service_started
     networks: [nerdearla]
 
-  # Transcription and translation behind TRANSCRIBER_URL. Set
-  # TRANSCRIBER_URL=http://transcriber:8090/v1/audio/segments to enable it;
-  # the room worker degrades cleanly when it is absent.
+  # Real Gemini transcription/translation consumes stage:*:audio from Redis.
+  # TRANSCRIBER_URL remains an optional HTTP compatibility path and must stay
+  # empty while bus mode is enabled to avoid duplicate inference.
   transcriber:
     build:
       context: .
@@ -75,14 +77,23 @@ services:
     environment:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-gemini-3.5-flash}
+      TRANSCRIPTION_THINKING_LEVEL: ${TRANSCRIPTION_THINKING_LEVEL:-minimal}
       REQUEST_TIMEOUT_SECONDS: ${TRANSCRIBER_TIMEOUT_SECONDS:-12}
       MAX_SEGMENT_SECONDS: ${TRANSCRIBER_MAX_SEGMENT_SECONDS:-40}
+      TRANSCRIBER_BUS_ENABLED: ${TRANSCRIBER_BUS_ENABLED:-true}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      STAGE_CONTEXT_FILE: /srv/nerdearla/config/stages.json
+    volumes:
+      - ./config/stages.json:/srv/nerdearla/config/stages.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
     expose:
       - "8090"
     healthcheck:
       test:
         ["CMD", "python", "-c",
-         "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+         "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/readyz', timeout=2)"]
       interval: 10s
       timeout: 3s
       start_period: 15s
@@ -106,6 +117,17 @@ services:
       - plumbing
     networks: [nerdearla]
 
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    depends_on:
+      - plumbing
+    networks: [nerdearla]
+
   # Deterministic ingest for demos and smoke tests (no audio hardware needed).
   demo-publisher:
     build:
@@ -122,6 +144,69 @@ services:
     depends_on:
       - mediamtx
       - plumbing
+    networks: [nerdearla]
+
+  # Deterministic transcriber for smoke tests (stub engine, no Gemini API key).
+  smoke-transcriber:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: [smoke]
+    restart: unless-stopped
+    init: true
+    entrypoint:
+      ["uvicorn", "transcriber.main:app", "--host", "0.0.0.0", "--port", "8090"]
+    environment:
+      TRANSCRIPTION_ENGINE: stub
+      ALLOW_STUB_ENGINE: "true"
+      TRANSCRIBER_BUS_ENABLED: "true"
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      STAGE_CONTEXT_FILE: /srv/nerdearla/config/stages.json
+    volumes:
+      - ./config/stages.json:/srv/nerdearla/config/stages.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    expose:
+      - "8090"
+    healthcheck:
+      test:
+        ["CMD", "python", "-c",
+         "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/readyz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+    networks:
+      nerdearla:
+        aliases:
+          - transcriber
+
+  # Deterministic smoke validator: Redis -> Transcriber -> WebSocket.
+  smoke-validator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: [smoke]
+    init: true
+    entrypoint: ["python", "-m", "scripts.smoke_validator"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      WS_URL: ${WS_URL:-ws://web:80/ws/stages/1/es}
+      PLUMBING_URL: ${PLUMBING_URL:-http://plumbing:8080}
+      TRANSCRIBER_URL: ${TRANSCRIBER_URL:-http://smoke-transcriber:8090}
+    volumes:
+      - ./scripts:/srv/nerdearla/scripts:ro
+      - .:/srv/nerdearla/host_workspace
+    depends_on:
+      redis:
+        condition: service_healthy
+      plumbing:
+        condition: service_started
+      web:
+        condition: service_started
+      smoke-transcriber:
+        condition: service_started
     networks: [nerdearla]
 
 networks:

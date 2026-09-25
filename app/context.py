@@ -36,6 +36,26 @@ class ContextProvider:
         except (OSError, json.JSONDecodeError, yaml.YAMLError, AttributeError, TypeError):
             return self._normalize(stage_id, {})
 
+    async def list(self) -> list[StageContext]:
+        """Return the local catalog; remote templates cannot be enumerated."""
+        if self.settings.context_url_template:
+            return []
+        path = Path(self.settings.stage_context_file)
+        try:
+            content = path.read_text(encoding="utf-8")
+            if path.suffix.lower() in {".yaml", ".yml"}:
+                data = yaml.safe_load(content) or {}
+            else:
+                data = json.loads(content)
+            if not isinstance(data, dict):
+                return []
+            return [
+                self._normalize(str(stage_id), item if isinstance(item, dict) else {})
+                for stage_id, item in data.items()
+            ]
+        except (OSError, json.JSONDecodeError, yaml.YAMLError, AttributeError, TypeError):
+            return []
+
     @staticmethod
     def _normalize(stage_id: str, data: dict[str, Any]) -> StageContext:
         return StageContext(

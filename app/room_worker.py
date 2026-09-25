@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.segmenter import SegmentWindow, UtteranceSegmenter
 from contracts.events import AudioSegment, TraceStamp, now_ms
 
 logger = logging.getLogger("nerdearla.room_worker")
@@ -176,13 +177,13 @@ class RoomWorker:
             raise RuntimeError("FFmpeg stdout pipe was not created")
 
         pending = bytearray()
-        window = bytearray()
-        window_t0_sample = self.stream_samples
-        speech_active = False
-        max_window_bytes = (
-            self.settings.max_segment_seconds
-            * PCM_SAMPLE_RATE
-            * PCM_SAMPLE_BYTES
+        segmenter = UtteranceSegmenter(
+            sample_rate=PCM_SAMPLE_RATE,
+            sample_bytes=PCM_SAMPLE_BYTES,
+            frame_samples=VAD_FRAME_SAMPLES,
+            pre_roll_ms=self.settings.vad_speech_pad_ms,
+            partial_seconds=self.settings.partial_segment_seconds,
+            max_seconds=self.settings.max_segment_seconds,
         )
 
         try:
@@ -195,7 +196,6 @@ class RoomWorker:
                     continue
                 frame_bytes = bytes(pending[:VAD_FRAME_BYTES])
                 del pending[:VAD_FRAME_BYTES]
-                window.extend(frame_bytes)
                 self.stream_samples += VAD_FRAME_SAMPLES
                 self.audio_seen_at = datetime.now(UTC).isoformat()
                 media_ms = (
@@ -207,38 +207,29 @@ class RoomWorker:
                 frame = np.frombuffer(frame_bytes, dtype=np.int16).astype(np.float32)
                 frame /= 32768.0
                 vad_event = vad(torch.from_numpy(frame), return_seconds=False)
-                if vad_event and "start" in vad_event and not speech_active:
-                    speech_active = True
+                started = bool(vad_event and "start" in vad_event)
+                ended = bool(vad_event and "end" in vad_event)
+                if started and not segmenter.speech_active:
                     self.state = "speech"
                     await self._publish_source_event(
                         "vad_start", False, {"sample": vad_event["start"]}
                     )
 
-                ended = bool(vad_event and "end" in vad_event)
-                forced = len(window) >= max_window_bytes
-                if ended or forced:
-                    await self._finish_segment(
-                        bytes(window),
-                        t0_ms=round(window_t0_sample / PCM_SAMPLE_RATE * 1000),
-                        t1_ms=round(self.stream_samples / PCM_SAMPLE_RATE * 1000),
-                        is_clause_end=ended,
-                        reason="silence" if ended else "max_duration",
-                    )
-                    window.clear()
-                    window_t0_sample = self.stream_samples
-                    speech_active = False
-                    self.state = "listening"
-                    if forced:
+                segments = segmenter.push(
+                    frame_bytes,
+                    stream_end_sample=self.stream_samples,
+                    speech_started=started,
+                    speech_ended=ended,
+                )
+                for segment in segments:
+                    await self._finish_segment(segment)
+                    if segment.reason != "partial":
+                        self.state = "listening"
+                    if segment.reason == "max_duration":
                         vad.reset_states()
 
-            if window:
-                await self._finish_segment(
-                    bytes(window),
-                    t0_ms=round(window_t0_sample / PCM_SAMPLE_RATE * 1000),
-                    t1_ms=round(self.stream_samples / PCM_SAMPLE_RATE * 1000),
-                    is_clause_end=False,
-                    reason="stream_interrupted",
-                )
+            for segment in segmenter.flush(self.stream_samples):
+                await self._finish_segment(segment)
             return await self.ffmpeg.wait()
         finally:
             stderr_task.cancel()
@@ -246,14 +237,15 @@ class RoomWorker:
 
     async def _finish_segment(
         self,
-        audio: bytes,
-        t0_ms: int,
-        t1_ms: int,
-        is_clause_end: bool,
-        reason: str,
+        segment: SegmentWindow,
     ) -> None:
         import numpy as np
 
+        audio = segment.audio
+        t0_ms = segment.t0_ms
+        t1_ms = segment.t1_ms
+        is_clause_end = segment.is_clause_end
+        reason = segment.reason
         duration_ms = round(len(audio) / PCM_SAMPLE_BYTES / PCM_SAMPLE_RATE * 1000)
         samples = np.frombuffer(audio, dtype=np.int16).astype(np.float64)
         rms = float(np.sqrt(np.mean(samples * samples))) if samples.size else 0.0
@@ -264,7 +256,8 @@ class RoomWorker:
             "reason": reason,
             "rms_dbfs": round(rms_dbfs, 2),
         }
-        await self._publish_source_event("vad_end", is_clause_end, payload)
+        if reason != "partial":
+            await self._publish_source_event("vad_end", is_clause_end, payload)
 
         self.sequence += 1
         segment = AudioSegment.from_pcm(

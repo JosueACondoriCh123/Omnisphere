@@ -1,12 +1,47 @@
+import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app, settings
+from app.main import app, runtime, settings, stage_metrics
 
 client = TestClient(app)
 
 
 def test_health() -> None:
     assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def test_stage_catalog_comes_from_the_backend_context() -> None:
+    items = client.get("/api/stages").json()["items"]
+    by_id = {item["stage_id"]: item for item in items}
+    assert by_id["1"]["name"] == "Stage 1"
+    assert by_id["1"]["languages"] == ["es", "en"]
+
+
+@pytest.mark.asyncio
+async def test_active_stage_reports_and_clears_transcriber_alarm() -> None:
+    old_paths = set(runtime.active_paths)
+    old_up = runtime.transcriber_up
+    old_error = runtime.transcriber_error
+    try:
+        runtime.active_paths = {"live/stage-1"}
+        runtime.transcriber_up = False
+        runtime.transcriber_error = "quota exhausted"
+        down = await stage_metrics("1")
+        assert down["transcriber_up"] is False
+        assert "transcriber_socket_down" in {
+            alarm["code"] for alarm in down["alarms"]
+        }
+
+        runtime.transcriber_up = True
+        runtime.transcriber_error = None
+        recovered = await stage_metrics("1")
+        assert "transcriber_socket_down" not in {
+            alarm["code"] for alarm in recovered["alarms"]
+        }
+    finally:
+        runtime.active_paths = old_paths
+        runtime.transcriber_up = old_up
+        runtime.transcriber_error = old_error
 
 
 def test_internal_event_requires_token() -> None:

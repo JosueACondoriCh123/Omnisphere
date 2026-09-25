@@ -30,7 +30,8 @@ X-Stage-Context: <json-base64url>
 ```
 
 One event per language in the stage context, all sharing the segment's text.
-`GET /health` reports the configured model and whether a key is present.
+`GET /health` is liveness and reports model/bus telemetry. `GET /readyz` returns
+200 only after the key, model preflight and Redis bus are ready.
 
 ### Status codes
 
@@ -58,36 +59,72 @@ carries `glossary` and `speakers`; both go into the prompt as terms that must be
 spelled exactly and never translated. This is what keeps "Spring Boot" from
 becoming "Bota de Primavera" and what keeps speaker names intact.
 
-**Forced cuts ship as drafts.** When `X-Is-Clause-End` is `false` the segment was
-cut at the safety limit mid-sentence, so the events are typed `draft` rather than
-`commit` and the UI can style them as provisional.
+**Open clauses ship overlapping drafts.** Every 1.5 seconds the worker sends the
+same utterance from a stable start timestamp with a growing end timestamp. The
+latest queued draft replaces older pending drafts; a commit is never dropped.
+This bounds Gemini backlog while preserving the visible draft→commit transition.
 
-**Temperature is 0.** `evaluation/` scores this output against fixed ground
-truth; reproducibility matters more than fluency.
+**Thinking is minimal.** Gemini 3.5 Flash uses `thinking_level=minimal` and an
+explicit system instruction for the lowest practical caption latency. Sampling
+parameters such as temperature are intentionally omitted.
 
 ## Running it
 
-```bash
-docker compose up -d transcriber
+### Redis Bus Mode (Default in Docker Compose)
+
+In production and Docker Compose, the transcriber connects directly to Redis:
+
+`stage:{id}:audio` → transcription → `stage:{id}:captions`
+
+Configuration:
+- `TRANSCRIBER_BUS_ENABLED=true` (enables Redis listener on `stage:*:audio`)
+- `REDIS_URL=redis://redis:6379/0`
+- `STAGE_CONTEXT_FILE=config/stages.json`
+- `BUS_QUEUE_SIZE=32`
+- `MAX_PARALLEL_STAGES=4`
+
+In this mode, `GET /health` includes real-time telemetry of the bus:
+```json
+{
+  "service": "nerdearla-transcriber",
+  "model": "gemini-3.5-flash",
+  "api_key_configured": true,
+  "stages_seen": [],
+  "bus": {
+    "enabled": true,
+    "status": "connected",
+    "redis_connected": true,
+    "queued": 0,
+    "processed": 142,
+    "published": 139,
+    "silent": 3,
+    "failures": 0,
+    "queue_overflows": 0,
+    "drafts_coalesced": 18,
+    "last_error": null
+  }
+}
 ```
 
-Then point the plumbing at it:
+```bash
+docker compose up -d redis transcriber
+```
+
+### HTTP Mode (Fallback / Dev)
+
+```bash
+uvicorn transcriber.main:app --port 8090
+```
+
+Point the plumbing at it:
 
 ```bash
 TRANSCRIBER_URL=http://transcriber:8090/v1/audio/segments
 GEMINI_API_KEY=...
 ```
 
-Locally, without Docker:
+## Latency note
 
-```bash
-uvicorn transcriber.main:app --port 8090
-```
-
-## Known limitation
-
-Captions cannot appear before the VAD closes the clause, because the room worker
-only ships audio at segment boundaries. For a six-second sentence the first word
-reaches the screen after the sentence ends, not while it is being spoken.
-Sub-second drafts would need a second, continuous audio path from the worker —
-an additive change to the contract, not a change to this service.
+`PARTIAL_SEGMENT_SECONDS=1.5` controls audio snapshot cadence, not the external
+Gemini response time. `/admin` raises the existing latency alarm when the
+observed network plus inference latency exceeds 1.5 seconds.

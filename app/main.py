@@ -33,6 +33,7 @@ from app.fanout import CaptionFanout
 from app.metrics import PIPELINE_METRICS
 from app.orchestrator import StageOrchestrator
 from app.state import CaptureNodeState, RuntimeState, WebSocketHub, WorkerState
+from app.transcriber_monitor import TranscriberMonitor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,16 +47,19 @@ hub = WebSocketHub()
 context_provider = ContextProvider(settings)
 orchestrator = StageOrchestrator(settings, runtime, hub, context_provider)
 caption_fanout = CaptionFanout(settings, runtime, hub, context_provider)
+transcriber_monitor = TranscriberMonitor(settings, runtime)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await caption_fanout.start()
+    await transcriber_monitor.start()
     await orchestrator.start()
     try:
         yield
     finally:
         await orchestrator.close()
+        await transcriber_monitor.close()
         await caption_fanout.close()
 
 
@@ -108,13 +112,21 @@ async def healthz() -> dict[str, str]:
 
 @app.get("/readyz")
 async def readyz() -> Response:
-    if runtime.mediamtx_connected and runtime.redis_connected:
-        return JSONResponse({"status": "ready"})
+    if runtime.mediamtx_connected and runtime.redis_connected and runtime.transcriber_up:
+        return JSONResponse(
+            {
+                "status": "ready",
+                "mediamtx": "ready",
+                "redis": "ready",
+                "transcriber": "ready",
+            }
+        )
     return JSONResponse(
         {
             "status": "not_ready",
             "mediamtx_error": runtime.mediamtx_error,
             "redis_error": runtime.redis_error,
+            "transcriber_error": runtime.transcriber_error,
         },
         status_code=503,
     )
@@ -123,12 +135,27 @@ async def readyz() -> Response:
 @app.get("/api/stages")
 async def stages() -> dict[str, Any]:
     snapshot = await runtime.snapshot()
+    catalog = {item.id: item for item in await context_provider.list()}
     stage_ids = {
         path.removeprefix("live/stage-") for path in snapshot["active_paths"]
-    } | set(snapshot["workers"])
+    } | set(snapshot["workers"]) | set(catalog) | {
+        node.stage_id for node in runtime.capture_nodes.values()
+    }
+    items = []
+    for stage_id in sorted(stage_ids):
+        context = catalog.get(stage_id) or await context_provider.get(stage_id)
+        items.append(
+            {
+                **(await stage_metrics(stage_id)),
+                "name": context.name,
+                "session": context.session,
+                "languages": context.languages,
+            }
+        )
     return {
-        "items": [await stage_metrics(stage_id) for stage_id in sorted(stage_ids)],
+        "items": items,
         "mediamtx_connected": snapshot["mediamtx_connected"],
+        "transcriber_up": snapshot["transcriber_up"],
     }
 
 
@@ -195,6 +222,10 @@ async def stage_metrics(stage_id: str) -> dict[str, Any]:
         or (worker.error and "transcriber" in worker.error.lower())
     ):
         alarms.append({"code": "transcriber_socket_down", "severity": "critical"})
+    if stream_up and not runtime.transcriber_up and not any(
+        alarm["code"] == "transcriber_socket_down" for alarm in alarms
+    ):
+        alarms.append({"code": "transcriber_socket_down", "severity": "critical"})
 
     return {
         "stage_id": stage_id,
@@ -203,6 +234,9 @@ async def stage_metrics(stage_id: str) -> dict[str, Any]:
         "capture_node_up": capture_alive,
         "worker_up": worker_alive,
         "worker_state": worker.state if worker else "stopped",
+        "transcriber_up": runtime.transcriber_up,
+        "transcriber_error": runtime.transcriber_error,
+        "transcriber_model": runtime.transcriber_model,
         "network_ms": network_ms,
         "inference_ms": inference_ms,
         "latency_ms": latency_ms,
@@ -240,6 +274,8 @@ async def prometheus_metrics() -> str:
         "# TYPE nerdearla_network_latency_ms gauge",
         "# HELP nerdearla_inference_latency_ms Latest upstream inference latency.",
         "# TYPE nerdearla_inference_latency_ms gauge",
+        "# HELP nerdearla_transcriber_up Whether Gemini and the transcription bus are ready.",
+        "# TYPE nerdearla_transcriber_up gauge",
         "# HELP nerdearla_vad_backlog_ms Wall-clock lag behind decoded PCM.",
         "# TYPE nerdearla_vad_backlog_ms gauge",
         "# HELP nerdearla_redis_publish_ms Latest Redis publish duration.",
@@ -253,6 +289,9 @@ async def prometheus_metrics() -> str:
         label = f'stage_id="{stage_id}"'
         lines.append(f"nerdearla_stage_stream_up{{{label}}} {int(metrics['stream_up'])}")
         lines.append(f"nerdearla_stage_audio_up{{{label}}} {int(metrics['audio_up'])}")
+        lines.append(
+            f"nerdearla_transcriber_up{{{label}}} {int(metrics['transcriber_up'])}"
+        )
         if metrics["network_ms"] is not None:
             lines.append(
                 f"nerdearla_network_latency_ms{{{label}}} {metrics['network_ms']}"

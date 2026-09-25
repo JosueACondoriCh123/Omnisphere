@@ -51,6 +51,10 @@ class RuntimeState:
         self.mediamtx_error: str | None = None
         self.redis_connected = False
         self.redis_error: str | None = None
+        self.transcriber_up = False
+        self.transcriber_error: str | None = "not checked"
+        self.transcriber_model: str | None = None
+        self.transcriber_checked_at: datetime | None = None
         self.active_paths: set[str] = set()
         self.workers: dict[str, WorkerState] = {}
         self.capture_nodes: dict[str, CaptureNodeState] = {}
@@ -90,6 +94,10 @@ class RuntimeState:
                 "mediamtx_error": self.mediamtx_error,
                 "redis_connected": self.redis_connected,
                 "redis_error": self.redis_error,
+                "transcriber_up": self.transcriber_up,
+                "transcriber_error": self.transcriber_error,
+                "transcriber_model": self.transcriber_model,
+                "transcriber_checked_at": self.transcriber_checked_at,
                 "active_paths": sorted(self.active_paths),
                 "workers": {key: asdict(value) for key, value in self.workers.items()},
                 "capture_nodes": {

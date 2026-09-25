@@ -1,0 +1,16 @@
+{
+  "name": "OmniStage",
+  "short_name": "OmniStage",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#1a1624",
+  "theme_color": "#1a1624",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

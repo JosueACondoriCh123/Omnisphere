@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY config ./config
 COPY contracts ./contracts
+COPY scripts ./scripts
 COPY transcriber ./transcriber
 
 RUN useradd --system --uid 10001 --create-home nerdev \

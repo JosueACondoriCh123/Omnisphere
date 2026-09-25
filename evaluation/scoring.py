@@ -285,8 +285,10 @@ def print_report_table(report: GlobalEvaluationReport) -> None:
     if hasattr(sys.stdout, "reconfigure"):
         try:
             sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
+        except (AttributeError, OSError, ValueError):
+            # Consola sin soporte para reconfigurar encoding; continuar con el predeterminado
+            encoding_reconfigured = False
+            _ = encoding_reconfigured
 
     header = (
         f"{'Sample ID':<16} | {'Language':<8} | "

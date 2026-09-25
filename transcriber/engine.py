@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -113,12 +114,80 @@ def build_prompt(context: StageContext, languages: list[str], is_clause_end: boo
     return "\n".join(parts)
 
 
+class StubTranscriptionEngine:
+    """Deterministic offline engine for smoke tests. Replaces Gemini without calling external APIs."""
+
+    def __init__(self, settings: TranscriberSettings) -> None:
+        if not settings.allow_stub_engine:
+            raise RuntimeError("ALLOW_STUB_ENGINE=true is required to use stub transcription engine")
+        self._settings = settings
+
+    def health_status(self) -> dict[str, Any]:
+        return {
+            "ready": True,
+            "last_error": None,
+            "mode": "stub",
+        }
+
+    async def process(
+        self, pcm: bytes, context: StageContext, is_clause_end: bool
+    ) -> SegmentResult:
+        original = "desplegamos el pod" if is_clause_end else "desplegamos"
+        return SegmentResult(
+            original=original,
+            source_language="es",
+            captions={
+                "es": original,
+                "en": "we deploy the pod" if is_clause_end else "we deploy",
+            },
+            preserved_terms=("pod",),
+        )
+
+
 class GeminiEngine:
     """Transcribes and translates one segment with a single structured call."""
 
     def __init__(self, settings: TranscriberSettings, client: Any | None = None) -> None:
         self._settings = settings
         self._client = client
+        self._ready = False
+        self._last_error: str | None = None
+        self._last_checked_ms: int | None = None
+        self._last_success_ms: int | None = None
+
+    def health_status(self) -> dict[str, Any]:
+        return {
+            "ready": self._ready,
+            "last_error": self._last_error,
+            "last_checked_ms": self._last_checked_ms,
+            "last_success_ms": self._last_success_ms,
+        }
+
+    def _mark_success(self) -> None:
+        checked = int(time.time() * 1000)
+        self._ready = True
+        self._last_error = None
+        self._last_checked_ms = checked
+        self._last_success_ms = checked
+
+    def _mark_failure(self, exc: BaseException) -> None:
+        self._ready = False
+        self._last_error = str(exc)[:500]
+        self._last_checked_ms = int(time.time() * 1000)
+
+    async def probe(self) -> bool:
+        try:
+            client = self._ensure_client()
+            await asyncio.wait_for(
+                client.aio.models.get(model=self._settings.transcription_model),
+                timeout=self._settings.model_probe_timeout_seconds,
+            )
+        except Exception as exc:  # noqa: BLE001  # Gemini SDK preflight probe must catch arbitrary API and network exceptions
+            self._mark_failure(exc)
+            logger.warning("Gemini model preflight failed: %s", exc)
+            return False
+        self._mark_success()
+        return True
 
     def _ensure_client(self) -> Any:
         if self._client is None:
@@ -137,10 +206,12 @@ class GeminiEngine:
 
         for attempt in range(1, self._settings.max_attempts + 1):
             try:
-                return await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     self._call(pcm, context, languages, is_clause_end),
                     timeout=self._settings.request_timeout_seconds,
                 )
+                self._mark_success()
+                return result
             except asyncio.TimeoutError as exc:
                 last_error = exc
                 logger.warning(
@@ -149,11 +220,13 @@ class GeminiEngine:
                     attempt,
                     self._settings.max_attempts,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # External Gemini API call can fail with diverse runtime exceptions; retry loop must survive
                 last_error = exc
                 logger.warning("Segment failed (attempt %d): %s", attempt, exc)
 
-        raise EngineUnavailable(str(last_error) if last_error else "unknown failure")
+        failure = last_error or RuntimeError("unknown failure")
+        self._mark_failure(failure)
+        raise EngineUnavailable(str(failure))
 
     async def _call(
         self,
@@ -175,9 +248,9 @@ class GeminiEngine:
                 system_instruction=SYSTEM_INSTRUCTION,
                 response_mime_type="application/json",
                 response_schema=RESPONSE_SCHEMA,
-                # Captions must be reproducible; the evaluation harness in
-                # evaluation/ scores this output against a fixed ground truth.
-                temperature=0.0,
+                thinking_config=types.ThinkingConfig(
+                    thinking_level=self._settings.transcription_thinking_level
+                ),
             ),
         )
         return parse_response(response.text, languages)

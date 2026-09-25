@@ -5,7 +5,7 @@ import binascii
 import json
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 # Deliberately a local model rather than an import from `app.domain`: this
 # service is coupled to the wire contract in docs/contracts.md, not to the
@@ -77,5 +77,5 @@ def decode_stage_context(header: str, stage_id: str = "") -> StageContext:
     data.setdefault("id", stage_id)
     try:
         return StageContext.model_validate(data)
-    except Exception:
+    except (ValidationError, ValueError, TypeError):
         return StageContext(id=stage_id)

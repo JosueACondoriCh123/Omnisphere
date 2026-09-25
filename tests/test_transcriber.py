@@ -3,13 +3,21 @@ from __future__ import annotations
 import base64
 import json
 import struct
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from transcriber.audio import PCM_SAMPLE_RATE, pcm_duration_ms, pcm_to_wav
+from transcriber.config import TranscriberSettings
 from transcriber.context import StageContext, decode_stage_context
-from transcriber.engine import EngineUnavailable, SegmentResult, build_prompt, parse_response
+from transcriber.engine import (
+    EngineUnavailable,
+    GeminiEngine,
+    SegmentResult,
+    build_prompt,
+    parse_response,
+)
 from transcriber.main import app, get_engine
 
 CONTEXT = {
@@ -235,3 +243,61 @@ def test_health_reports_the_configured_model(client: TestClient) -> None:
     body = client.get("/health").json()
     assert body["service"] == "nerdearla-transcriber"
     assert body["model"]
+
+
+class FakeGeminiModels:
+    def __init__(self) -> None:
+        self.fail_probe = False
+        self.last_config = None
+
+    async def get(self, *, model: str):
+        if self.fail_probe:
+            raise RuntimeError("invalid credential")
+        return SimpleNamespace(name=model)
+
+    async def generate_content(self, *, model, contents, config):
+        self.last_config = config
+        return SimpleNamespace(
+            text=json.dumps(
+                {
+                    "original": "hola",
+                    "source_language": "es",
+                    "captions": [
+                        {"lang": "es", "text": "hola"},
+                        {"lang": "en", "text": "hello"},
+                    ],
+                }
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_gemini_preflight_recovers_and_live_config_is_low_latency() -> None:
+    models = FakeGeminiModels()
+    fake_client = SimpleNamespace(aio=SimpleNamespace(models=models))
+    settings = TranscriberSettings(
+        gemini_api_key="test-key",
+        transcription_thinking_level="minimal",
+    )
+    engine = GeminiEngine(settings, client=fake_client)
+
+    models.fail_probe = True
+    assert await engine.probe() is False
+    assert engine.health_status()["ready"] is False
+    assert "invalid credential" in engine.health_status()["last_error"]
+
+    models.fail_probe = False
+    assert await engine.probe() is True
+    result = await engine.process(
+        b"\x00\x01" * 800,
+        StageContext(id="1", languages=["es", "en"]),
+        True,
+    )
+
+    assert result.captions == {"es": "hola", "en": "hello"}
+    assert engine.health_status()["ready"] is True
+    assert engine.health_status()["last_error"] is None
+    assert models.last_config.temperature is None
+    assert str(models.last_config.thinking_config.thinking_level).lower().endswith(
+        "minimal"
+    )

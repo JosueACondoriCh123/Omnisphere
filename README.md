@@ -7,11 +7,17 @@ captura auto-registrable.
 ## Arranque
 
 ```bash
+cp .env.example .env
+# completar GEMINI_API_KEY en .env
 docker compose up -d
 curl http://localhost:8080/readyz
 ```
 
-Esto levanta Redis, MediaMTX y el servicio de plomería. Los puntos principales son:
+El front (PWA, overlay, admin, proyector y archivo) queda en
+`http://localhost:8088/app`. Nginx proxea `/api` y `/ws` al servicio de plomería.
+
+Esto levanta Redis, MediaMTX, plomería, el transcriptor Gemini y el front. Los
+puntos principales son:
 
 | Uso | Dirección |
 |---|---|
@@ -21,12 +27,21 @@ Esto levanta Redis, MediaMTX y el servicio de plomería. Los puntos principales 
 | Métricas Prometheus | `http://localhost:8080/metrics` |
 | HLS de diagnóstico | `http://localhost:8888/live/stage-1/index.m3u8` |
 | OpenAPI | `http://localhost:8080/docs` |
+| PWA audiencia | `http://localhost:8088/app` |
+| Overlay OBS | `http://localhost:8088/overlay/1?theme=obs&lang=es&size=md` |
+| Admin | `http://localhost:8088/admin` |
+| Proyector | `http://localhost:8088/captions/clean?stage=1&lang=es` |
+| Archivo SRT/VTT/TXT | `http://localhost:8088/archive/1?lang=es&session=3` |
 
 El orquestador consulta MediaMTX una vez por segundo. Cuando ve
 `live/stage-1`, carga contexto y crea un proceso worker exclusivo para sala 1.
 Si la publicación desaparece, conserva el worker durante 15 s y FFmpeg intenta
 reconectar dentro del mismo proceso. Un corte de 10 s mantiene el mismo PID y
 retoma sin duplicar la sala.
+
+`/healthz` indica que la API está viva; `/readyz` exige además MediaMTX, Redis y
+el transcriptor Gemini. Si falta o falla la credencial, el front sigue accesible
+y `/admin` muestra `Gemini/transcriber socket down`.
 
 ## Prueba sin hardware
 
@@ -79,8 +94,10 @@ highpass=f=80,loudnorm=I=-16:TP=-1.5:LRA=11:linear=true
 ```
 
 Silero marca `is_clause_end=true` cuando detecta el silencio que cierra un
-segmento. Un corte forzado por duración máxima queda en `false`, para no
-confundir un límite operativo con un cierre lingüístico.
+segmento. Durante el habla se publican drafts solapados cada 1,5 s desde el mismo
+inicio de cláusula; el commit final reemplaza esos drafts por timestamps. Un
+corte forzado por duración máxima queda en `false`, para no confundir un límite
+operativo con un cierre lingüístico.
 
 ## Integración con transcripción
 
@@ -112,3 +129,18 @@ python scripts/loadtest.py --rooms 6,8,10 --duration 45
 
 El resultado queda en `loadtest-report.md`; `--dry-run` permite inspeccionar
 todos los comandos FFmpeg sin publicar.
+
+## Validación real con OBS
+
+En OBS usar servicio personalizado, Server `rtmp://localhost:1935/live` y Stream
+Key `stage-1`. La fuente de navegador del overlay es
+`http://localhost:8088/overlay/1?theme=obs&lang=es&size=md`. Con la transmisión
+iniciada, ejecutar:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\validate_live_demo.py --stage 1 --langs es,en
+```
+
+Hablar durante tres segundos y hacer una pausa. El comando exige un draft y un
+commit solapados en ambos idiomas y comprueba que el commit reaparece en el
+snapshot de reconexión; no acepta eventos generados con `?mock=1`.

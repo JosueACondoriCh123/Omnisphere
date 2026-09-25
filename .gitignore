@@ -7,6 +7,7 @@ __pycache__/
 .venv-*/
 .carril3-venv/
 dist/
+web/node_modules/
 coverage.xml
 htmlcov/
 *.log

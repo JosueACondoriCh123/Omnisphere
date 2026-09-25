@@ -22,10 +22,13 @@ class Settings(BaseSettings):
     context_url_template: str = ""
     stage_context_file: str = "config/stages.json"
     transcriber_url: str = ""
+    transcriber_health_url: str = "http://transcriber:8090/readyz"
+    transcriber_poll_seconds: float = Field(default=2.0, ge=0.5, le=30)
 
     vad_threshold: float = Field(default=0.55, ge=0, le=1)
     vad_min_silence_ms: int = Field(default=420, ge=100, le=5000)
     vad_speech_pad_ms: int = Field(default=140, ge=0, le=1000)
+    partial_segment_seconds: float = Field(default=1.5, ge=0.5, le=10)
     max_segment_seconds: int = Field(default=28, ge=3, le=120)
     ffmpeg_reconnect_seconds: float = Field(default=1.0, ge=0.1, le=30)
     stream_grace_seconds: float = Field(default=15.0, ge=0, le=300)

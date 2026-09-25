@@ -6,8 +6,9 @@ el informe de la hora simultánea de cada ruta.
 
 | Comprobación | Resultado observado |
 | --- | --- |
-| Pruebas Python | 96 aprobadas; 2 avisos de deprecación de dependencias |
-| Pruebas unitarias frontend | 16 aprobadas con `--maxWorkers=1` en la corrida final |
+| Pruebas Python | 97 aprobadas; 2 avisos de deprecación de dependencias |
+| Pruebas unitarias frontend | 20 aprobadas con `--maxWorkers=1`, incluidas dos del panel de modelos |
+| Pruebas unitarias desktop | 15 aprobadas, incluidas entrada válida, rechazo y fallo seguro de la prueba local de Gemma |
 | Pruebas de navegador escritorio/móvil | 20 aprobadas con Chromium Playwright; incluyen navegación de operación y salida protegida de reuniones |
 | Credenciales Gemini | 1 prueba Node aprobada: comprueba acceso a ambos modelos, reemplazo rechazado, corte de red, reinicio y borrado sin exponer secretos. Falta una clave real |
 | Salidas externas | 7 pruebas Node aprobadas: destinos, tres salas, cifrado, autenticación OBS v5, envío único y recuperación Zoom después de reconectar |
@@ -25,7 +26,9 @@ el informe de la hora simultánea de cada ruta.
 | Colector visible | abrió seis vistas Chromium (tres salas × dos idiomas) contra una fuente sintética y guardó dos captions por sala, uno por idioma; no es una medición del piloto |
 | App Electron instalada 0.1.1 | arrancó MediaMTX y backend desde la instalación temporal con un perfil aislado fuera del sandbox; salud interna/pública 200, API de MediaMTX 200 y ruta de operador en origen público 404 |
 | Importación offline de modelos | desde la interfaz empaquetada verificó los cinco SHA256, importó faster-whisper y Gemma en un perfil aislado y mostró ambos instalados |
-| Instalador Windows NSIS actual | `desktop/dist/OmniStage Setup 0.1.3.exe`, 928.931.042 bytes, SHA256 `3E60FBD30332B6012F8FBFC748A8FAACF2AA75B4B4CF189C7D99B041121344F6`; firma de código: no presente. Instalación por equipo con permiso de administrador; incluye `desktop/installer.nsh` para crear y borrar la regla de firewall TCP 8088 en redes Privadas. La creación de la regla al instalar todavía no se comprobó |
+| Instalador Windows NSIS actual | `desktop/dist/OmniStage Setup 0.1.4.exe`, 928.935.497 bytes, SHA256 `1B090A896D6CD47CAC28BEBBBEA3186F9897F4D43F9F7C3B3F4BE03D7DF886D6`; firma de código: no presente. Instalación por equipo con permiso de administrador; incluye `desktop/installer.nsh` para crear y borrar la regla de firewall TCP 8088 en redes Privadas. La creación de la regla al instalar todavía no se comprobó |
+| Entrega comprimida sin modelos | `desktop/release/OmniStage-0.1.4-sin-modelos.7z`, 897.464.113 bytes (856 MiB); SHA256 `93CA85BB0C5ACB548486734D154421536C91C585C41F9127470E01A88659F26D`. Prueba de integridad 7-Zip aprobada. Contiene instalador, instrucciones y verificador, sin pesos de Gemma ni faster-whisper. |
+| Pantalla inicial y panel de modelos 0.1.4 | App empaquetada arrancó con pantalla inicial visible; salud interna y pública 200, ruta de operador en origen público 404. Con perfil limpio mostró el panel de instalación, arranque y prueba local; la prueba quedó deshabilitada sin Gemma instalado. No se ejecutó inferencia real desde este perfil limpio. |
 | Entrega offline 0.1.3 | `desktop/release/OmniStage-0.1.3-offline/` contiene el instalador y `model-pack` como archivos separados (4,44 GiB en total). `VERIFICAR.ps1` aprobó los siete SHA256 de la copia final. La app empaquetada arrancó con salud interna y pública 200, origen público sin ruta de operador, e importó los cinco archivos del paquete en un perfil aislado. Se usa Gemma 4 E2B base, sin ajuste fino. |
 | Guía de primeros pasos | 6 pruebas Playwright (escritorio y móvil) con puente de escritorio simulado: guía visible sin modelos, progreso de descarga, aviso de red Pública, acceso desde la barra lateral y aviso en la creación del operador |
 | Descarga de modelos en la app | 4 pruebas Node: instalación atómica, reanudación con `Range` tras un corte y rechazo por SHA256. Descarga real desde Hugging Face con las URL fijadas: ver fila siguiente |

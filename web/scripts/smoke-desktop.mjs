@@ -19,6 +19,7 @@ try {
   const firstUrl = page.url();
   if (firstUrl.startsWith("file:")) {
     await page.getByRole("heading", { name: "OMNISTAGE" }).waitFor({ timeout: 10_000 });
+    await page.screenshot({ path: path.join(appData, "inicio.png") });
   }
   await page.waitForURL("http://127.0.0.1:8080/admin", { timeout: 90_000 });
   const internal = await fetch("http://127.0.0.1:8080/healthz");

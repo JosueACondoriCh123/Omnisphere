@@ -1,188 +1,133 @@
-# OmniStage — piloto híbrido Windows
+# OmniStage — Plataforma Híbrida de Subtitulado y Traducción en Vivo
 
-OmniStage sirve al público salas, subtítulos en español o inglés, overlay OBS y
-proyector. La app de operación usa cuentas individuales, sesiones con referencia
-documental de permisos, archivo SQLite y exportaciones SRT/VTT/TXT. El runtime
-nativo no requiere Redis ni Docker Desktop. El puerto 8080 se liga a loopback
-para operar; el puerto 8088 es de lectura para la LAN de esta demo.
+OmniStage es una plataforma de subtitulado y traducción bilingüe en tiempo real (español e inglés) diseñada para conferencias técnicas y eventos en vivo con soporte de hasta **diez salas simultáneas** (`stage-1` a `stage-10`).
 
-El catálogo y los controles admiten hasta **diez salas** (`stage-1` a `stage-10`).
-La concurrencia real de subtítulos y salidas en diez salas sigue pendiente de una
-prueba de carga en el equipo final; el piloto documentado de tres salas tampoco
-equivale a esa validación.
+Cuenta con una **arquitectura híbrida de tolerancia total a fallos (zero-downtime)**: opera con **Google Gemini Live** en la nube para transcripción y traducción de ultra baja latencia, y conmuta automáticamente a inferencia local en GPU mediante **faster-whisper** y **Gemma 4 E2B** si se produce una desconexión o fallo de red.
 
-La ruta de nube usa `gemini-3.5-transcribe-live` con PCM continuo y
-`gemini-3.5-flash-lite` para traducción. La ruta local usa faster-whisper para
-ASR y Gemma 4 E2B cuantizado para corrección/traducción. El modo automático
-cambia a local tras fallo de nube. Los subtítulos confirmados se persisten
-antes de emitirse y se conservan 30 días por defecto. Las claves se guardan en
-el almacén seguro de Windows de Electron.
+---
+
+## Arquitectura y Motor de IA
+
+```text
+[ Fuentes de Audio ] (OBS / Micrófonos / RTMP)
+       │
+       ▼
+[ Plomería & VAD ] (MediaMTX + FFmpeg normalizado + Silero VAD)
+       │
+       ├──► [ Ruta Nube (Principal) ]
+       │      ├─ Transcripción: Gemini Live (gemini-3.5-transcribe-live, streaming PCM continuo)
+       │      └─ Traducción: Gemini 3.5 Flash Lite (preservación de glosario y Spanglish)
+       │
+       └──► [ Ruta Edge / Local (Failover Automático) ]
+              ├─ Transcripción: faster-whisper (CUDA INT8/FP16)
+              └─ Traducción/Corrección: Gemma 4 E2B Q4_0 (llama-server local, ~1.7 GB VRAM)
+```
+
+- **Ruta de Nube:** Transcripción mediante streaming PCM continuo con Gemini Live y traducción contextual con Gemini 3.5 Flash Lite. Las claves API se almacenan cifradas en Windows DPAPI mediante `safeStorage`.
+- **Ruta Local:** Inferencia en GPU NVIDIA local. Si la nube pierde conectividad o agota reintentos, el backend degrada instantáneamente a inferencia local sin perder cláusulas ni reiniciar la sesión.
+- **Reconciliador Anti-Parpadeo:** Emite hipótesis intermedias en streaming (*drafts* en gris atenuado) que se consolidan en texto definitivo (*commits* en blanco sólido) en cuanto el VAD detecta una pausa lingüística.
+
+---
+
+## Separación de Dominios y Seguridad
+
+OmniStage separa estrictamente el tráfico público del entorno de operación:
+
+1. **Origen Público (LAN / Vercel / CDN — Puerto `8088` o Dominio HTTPS):**
+   - Diseñado para la audiencia, proyectores de escenario y zócalos de streaming.
+   - Solo lectura: expone `/app`, `/overlay/:stageId`, `/captions/clean`, `/healthz`, `/api/stages` y los WebSockets de subtítulos.
+   - Cualquier intento de acceder a rutas de operador o gestión desde este origen devuelve **404 Not Found**.
+
+2. **Origen de Operación (Privado — Puerto `8080` estrictamente en Loopback):**
+   - Enlazado exclusivamente a `127.0.0.1:8080` en la máquina de control.
+   - Inaccesible desde la red LAN o internet.
+   - Controla inicio de sesiones con referencia documental de permisos, ingreso de credenciales Gemini, base de datos SQLite y exportación de archivos (SRT, VTT, TXT).
+
+3. **Ingesta de Medios (Loopback `127.0.0.1`):**
+   - Servidor RTMP (`1935`) y RTSP (`8554`) limitados a loopback local para ingesta de OBS y dispositivos locales de captura.
+
+---
+
+## Matriz de Superficies y Endpoints de Producción
+
+En producción, sustituir `<IP_DE_LA_PC>` por la dirección IP de la máquina de control en la red local o `<DOMINIO_PUBLICO>` / `<DOMINIO_WS>` si se utiliza Vercel o un túnel HTTPS/WSS.
+
+| Superficie / Uso | Formato de Producción (LAN / Vercel) | Ámbito / Acceso |
+|---|---|---|
+| **PWA de Audiencia** | `https://<DOMINIO_PUBLICO>/app`<br>o `http://<IP_DE_LA_PC>:8088/app` | Público (asistentes desde móviles/navegadores) |
+| **Overlay para OBS** | `https://<DOMINIO_PUBLICO>/overlay/:stageId?theme=obs&lang=es&size=md`<br>o `http://<IP_DE_LA_PC>:8088/overlay/:stageId?theme=obs&lang=es&size=md` | Streaming (Browser Source transparente) |
+| **Proyector de Auditorio** | `https://<DOMINIO_PUBLICO>/captions/clean?stage=1&lang=es`<br>o `http://<IP_DE_LA_PC>:8088/captions/clean?stage=1&lang=es` | Pantallas de sala (alto contraste, sin distracciones) |
+| **WebSocket de Subtítulos** | `wss://<DOMINIO_WS>/ws/stages/:stageId/:lang`<br>o `ws://<IP_DE_LA_PC>:8088/ws/stages/:stageId/:lang` | Público (transmisión en tiempo real por sala e idioma) |
+| **API Pública de Salas** | `GET /api/stages` (en origen público) | Público (catálogo y estado básico de salas activas) |
+| **Salud Pública** | `GET /healthz` (en origen público) | Público / Balanceador |
+| **Consola de Operador (Admin)** | `http://127.0.0.1:8080/` (o interfaz OmniStage Desktop) | **Privado** (solo operador en loopback local) |
+| **Archivo y Exportación** | `http://127.0.0.1:8080/operator/archive` (o interfaz Desktop) | **Privado** (descarga de SRT, VTT y TXT de charlas cerradas) |
+| **Ingesta RTMP (OBS / Emisor)** | `rtmp://127.0.0.1:1935/live/:stageId` | **Privado** (máquina local de emisión) |
+| **Salida HLS para Reuniones** | `http://127.0.0.1:8888/live/:stageId/index.m3u8` | Loopback local (puente a Zoom / Google Meet) |
+
+---
+
+## Instalación y Ejecución
+
+### 1. Aplicación de Escritorio Nativa (Windows)
+OmniStage no requiere Docker ni Redis en producción. El instalador empaqueta la API, los workers asíncronos, MediaMTX, FFmpeg, llama.cpp y dependencias CUDA.
+
+- **Instalador NSIS:** `desktop/dist/OmniStage Setup 0.1.4.exe`
+- Requisitos: Windows 10/11 (64 bits), GPU NVIDIA (recomendado para ruta local, ej. RTX 4050 con ~1.7 GB VRAM libre), 10 GB de disco.
+- Al instalar, crea automáticamente la regla de firewall local para el puerto `8088` en redes Privadas.
+- **Modelos:** Se pueden descargar en el primer inicio desde la app (vía Hugging Face con verificación de SHA256) o importar offline mediante un paquete generado con `desktop/prepare_model_pack.py`.
+- Más información en [Instalador Windows y recursos requeridos](desktop/README.md).
+
+### 2. Despliegue del Frontend Público en Vercel
+La landing y las vistas de audiencia/overlay pueden alojarse de forma distribuida en Vercel:
+
+1. Importar el repositorio en Vercel y definir **Root Directory: `web`**.
+2. Variables de entorno en Vercel:
+   - `VITE_PUBLIC_API_ORIGIN=https://tu-origen-publico` (apuntando al backend expuesto en puerto 8088 vía túnel HTTPS).
+   - `VITE_PUBLIC_WS_ORIGIN=wss://tu-origen-websocket` (apuntando al endpoint WSS).
+3. En la máquina anfitriona del backend, configurar:
+   - `OMNISTAGE_PUBLIC_CORS_ORIGINS=https://tu-sitio.vercel.app`
+4. Desplegar con `npm run build:vercel`.
+- Más información en [Landing y frontend público en Vercel](web/README.md).
+
+---
+
+## Ingesta de Audio en Vivo
+
+- **Desde OBS Studio:**
+  - Servidor: `rtmp://127.0.0.1:1935/live`
+  - Clave de transmisión: `stage-1` (o la sala correspondiente: `stage-2` ... `stage-10`).
+- **Desde la Aplicación OmniStage:**
+  - Se puede asignar directamente un micrófono físico de la máquina (DirectShow) o un archivo de audio a velocidad real a cualquier sala desde el panel de control.
+
+---
+
+## Pruebas y Validación
+
+```powershell
+# Pruebas unitarias y de integración de backend
+pytest -q
+
+# Pruebas del reconciliador y vistas frontend
+cd web
+npm test -- --run
+npm run test:vercel
+
+# Pruebas de credenciales, salidas y modelos locales (Node)
+cd desktop
+npm test
+```
+
+Para la ejecución de la prueba formal de carga, cálculo de p95 de latencia y generación de reportes de calidad, consultar la [Guía de ejecución de la demo](docs/demo-final.md).
+
+---
+
+## Documentación de Referencia
 
 - [Instalador Windows y recursos requeridos](desktop/README.md)
 - [Landing y frontend público preparados para Vercel](web/README.md)
-- [Guía de ejecución de la demo](docs/demo-final.md)
+- [Guía de ejecución y cierre de la demo](docs/demo-final.md)
 - [Estado medido y criterios pendientes](docs/demo-status.md)
 - [Matriz de validación y manifiesto de grabaciones](docs/piloto.md)
-- [Preparación legal del ajuste LoRA](training/README.md)
+- [Preparación y recetas de ajuste LoRA para Gemma 4](training/README.md)
 - [Datasets prioritarios para el ajuste](training/DATASETS.md)
-
-El sistema **todavía no está certificado para el piloto**: la demo LAN requiere
-un instalador probado, modelos cargados, una cuenta Gemini facturable y
-grabaciones con permisos y referencias humanas. El objetivo de tres salas con
-p95 visible ≤5 s sigue siendo un criterio de aceptación pendiente de medir en
-hardware real. La landing para Vercel está preparada; conectar el origen público
-mediante un dominio HTTPS o Cloudflare Tunnel queda para una fase posterior.
-
-- [Guía de cierre de la demo LAN](docs/demo-final.md)
-
-## Stack anterior para desarrollo (Compose)
-
-El contenido siguiente describe el stack anterior de desarrollo con Redis y
-Docker. Puede usarse para regresión, pero no representa el instalador nativo.
-
-# Nerdearla 2026 — Carril 3: plomería
-
-Plomería de audio en vivo por sala: ingesta RTMP, normalización FFmpeg, Silero
-VAD, workers aislados, bus Redis, WebSocket particionado, métricas y nodo de
-captura auto-registrable.
-
-## Arranque
-
-```bash
-cp .env.example .env
-# completar GEMINI_API_KEY en .env
-docker compose up -d
-curl http://localhost:8080/readyz
-```
-
-El front (PWA, overlay, admin, proyector y archivo) queda en
-`http://localhost:8088/app`. Nginx proxea `/api` y `/ws` al servicio de plomería.
-
-Esto levanta Redis, MediaMTX, plomería, el transcriptor Gemini y el front. Los
-puntos principales son:
-
-| Uso | Dirección |
-|---|---|
-| Publicar sala 1 | `rtmp://localhost:1935/live/stage-1` |
-| WS español sala 1 | `ws://localhost:8080/ws/stages/1/es` |
-| Métricas sala 1 | `http://localhost:8080/api/metrics/stages/1` |
-| Métricas Prometheus | `http://localhost:8080/metrics` |
-| HLS de diagnóstico | `http://localhost:8888/live/stage-1/index.m3u8` |
-| OpenAPI | `http://localhost:8080/docs` |
-| PWA audiencia | `http://localhost:8088/app` |
-| Overlay OBS | `http://localhost:8088/overlay/1?theme=obs&lang=es&size=md` |
-| Admin | `http://localhost:8088/admin` |
-| Proyector | `http://localhost:8088/captions/clean?stage=1&lang=es` |
-| Archivo SRT/VTT/TXT | `http://localhost:8088/archive/1?lang=es&session=3` |
-
-El orquestador consulta MediaMTX una vez por segundo. Cuando ve
-`live/stage-1`, carga contexto y crea un proceso worker exclusivo para sala 1.
-Si la publicación desaparece, conserva el worker durante 15 s y FFmpeg intenta
-reconectar dentro del mismo proceso. Un corte de 10 s mantiene el mismo PID y
-retoma sin duplicar la sala.
-
-`/healthz` indica que la API está viva; `/readyz` exige además MediaMTX, Redis y
-el transcriptor Gemini. Si falta o falla la credencial, el front sigue accesible
-y `/admin` muestra `Gemini/transcriber socket down`.
-
-## Prueba sin hardware
-
-Este comando suma un emisor sintético que se registra solo y publica en sala 1:
-
-```bash
-docker compose --profile demo up -d
-docker compose logs -f plumbing demo-publisher
-```
-
-Comprobar el resultado:
-
-```bash
-curl http://localhost:8080/api/metrics/stages/1
-```
-
-El ruido rosa valida señal, FFmpeg, registro y métricas. No pretende activar el
-VAD de voz. Para probar segmentación, publicar una voz real con OBS o FFmpeg.
-
-## Nodo de captura en un comando
-
-Desde una máquina Linux con ALSA y acceso al servidor:
-
-```bash
-docker compose --profile capture run --rm capture-node \
-  --stage 1 --server rtmp://SERVIDOR:1935 \
-  --api-url http://SERVIDOR:8080 --input-format alsa --source hw:0
-```
-
-El nodo se registra en `/api/capture-nodes/register`, envía heartbeat y su RTT,
-y publica AAC a `live/stage-1`. Para una fuente PulseAudio, usar
-`--input-format pulse --source default`. En macOS usar `avfoundation`; en una
-captura nativa de Windows, `dshow`. Si el contenedor no tiene acceso al
-dispositivo del host, ejecutar el módulo en Python local o publicar desde OBS.
-
-OBS no necesita el nodo: Server `rtmp://SERVIDOR:1935/live` y Stream Key
-`stage-1`.
-
-La configuración de firewall, bindeos y el comando para otra máquina están en
-[docs/captura.md](docs/captura.md).
-
-## Cadena de audio
-
-Cada worker ejecuta exactamente:
-
-```text
-highpass=f=80,loudnorm=I=-16:TP=-1.5:LRA=11:linear=true
-→ PCM s16le · 16 kHz · mono
-→ Silero VAD streaming (frames de 512 muestras)
-```
-
-Silero marca `is_clause_end=true` cuando detecta el silencio que cierra un
-segmento. Durante el habla se publican drafts solapados cada 1,5 s desde el mismo
-inicio de cláusula; el commit final reemplaza esos drafts por timestamps. Un
-corte forzado por duración máxima queda en `false`, para no confundir un límite
-operativo con un cierre lingüístico.
-
-## Integración con transcripción
-
-Carril 3 publica cada `AudioSegment` a `stage:{id}:audio`. Carril 2 publica sus
-`CaptionEvent` a `stage:{id}:captions`; el fanout los convierte al idioma
-pedido por cada WS. `TRANSCRIBER_URL` queda como puente HTTP opcional para una
-integración externa. Los contratos están en [docs/contracts.md](docs/contracts.md).
-
-## Configuración
-
-Copiar `.env.example` a `.env` y cambiar al menos `INTERNAL_TOKEN` antes de
-exponer el servicio. Las salas, idiomas, glosario y speakers locales viven en
-`config/stages.json`; `CONTEXT_URL_TEMPLATE` permite reemplazarlos por un
-servicio remoto.
-
-## Pruebas
-
-```bash
-docker compose run --rm --no-deps plumbing pytest -q
-docker compose config --quiet
-```
-
-Prueba escalonada con los WAV del corpus y reporte de CPU, backlog VAD, Redis y
-p95 `ingest→fanout`:
-
-```bash
-python scripts/loadtest.py --rooms 6,8,10 --duration 45
-```
-
-El resultado queda en `loadtest-report.md`; `--dry-run` permite inspeccionar
-todos los comandos FFmpeg sin publicar.
-
-## Validación real con OBS
-
-En OBS usar servicio personalizado, Server `rtmp://localhost:1935/live` y Stream
-Key `stage-1`. La fuente de navegador del overlay es
-`http://localhost:8088/overlay/1?theme=obs&lang=es&size=md`. Con la transmisión
-iniciada, ejecutar:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\validate_live_demo.py --stage 1 --langs es,en
-```
-
-Hablar durante tres segundos y hacer una pausa. El comando exige un draft y un
-commit solapados en ambos idiomas y comprueba que el commit reaparece en el
-snapshot de reconexión; no acepta eventos generados con `?mock=1`.

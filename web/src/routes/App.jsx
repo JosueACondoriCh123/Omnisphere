@@ -6,6 +6,7 @@ import { useOnline } from "../lib/online.js";
 import { useSurfaceClass } from "../lib/stages.js";
 import { useCaptions } from "../lib/useCaptions.js";
 import { useStageOptions } from "../lib/useStageOptions.js";
+import { hasLiveBackend } from "../lib/publicBackend.js";
 
 const SIZES = ["S", "M", "L", "XL"];
 
@@ -47,7 +48,7 @@ export default function App() {
   const contrast = params.get("contrast") === "1";
   const mock = params.get("mock") === "1";
   const online = useOnline();
-  const stages = useStageOptions({ enabled: !mock });
+  const stages = useStageOptions({ enabled: !mock && hasLiveBackend });
   const stageOptions = stages.some(
     (stage) => String(stage.stage_id) === String(stageId),
   )

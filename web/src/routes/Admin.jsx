@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ALARM_LABELS } from "../lib/hops.js";
 import { useSurfaceClass } from "../lib/stages.js";
+import { useStageOptions } from "../lib/useStageOptions.js";
 import BroadcastPanel from "../components/BroadcastPanel.jsx";
+import OperatorSidebar from "../components/OperatorSidebar.jsx";
+import SetupGuide from "../components/SetupGuide.jsx";
 
 async function api(path, options = {}, csrf = "") {
   const response = await fetch(path, {
@@ -61,18 +64,19 @@ function Access({ onLogin }) {
     <div className="access-panel">
       <p className="section-index">OMNISTAGE / OPERACIÓN</p>
       <h1>{setup ? "Crear operador inicial" : "Acceso de operadores"}</h1>
+      {setup && <p className="setup-first-step">Paso 1 de la instalación. Después de crear la cuenta, la app te guía para descargar los modelos, comprobar los servicios y abrir la red local al público.</p>}
       <p>Las sesiones, exportaciones y controles de audio están disponibles solo en esta computadora.</p>
       <form onSubmit={submit} className="field-stack">
         <label>Correo electrónico<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <label>Contraseña<input type="password" minLength={12} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+        <label>Contraseña{setup && " (mínimo 12 caracteres)"}<input type="password" minLength={12} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
         {error && <p className="surface-error" role="alert">{error}</p>}
-        <button type="submit" disabled={busy}>{busy ? "Verificando…" : setup ? "Crear cuenta" : "Ingresar"}</button>
+        <button className="glass-button glass-button-primary" type="submit" disabled={busy}>{busy ? "Verificando…" : setup ? "Crear cuenta" : "Ingresar"}</button>
       </form>
     </div>
   </main>;
 }
 
-function SessionForm({ csrf, onCreated, desktop }) {
+function SessionForm({ csrf, onCreated, desktop, stages }) {
   const [stageId, setStageId] = useState("1");
   const [title, setTitle] = useState("");
   const [source, setSource] = useState("obs");
@@ -130,7 +134,7 @@ function SessionForm({ csrf, onCreated, desktop }) {
   return <form className="operator-panel session-form" onSubmit={submit}>
     <div className="panel-heading"><div><p className="section-index">PREPARACIÓN</p><h2>Nueva sesión</h2></div><span>01</span></div>
     <div className="form-grid">
-      <label>Sala<select value={stageId} onChange={(event) => setStageId(event.target.value)}><option value="1">Sala 1</option><option value="2">Sala 2</option><option value="3">Sala 3</option></select></label>
+      <label>Sala<select value={stageId} onChange={(event) => setStageId(event.target.value)}>{stages.map((stage) => <option key={stage.stage_id} value={stage.stage_id}>Sala {stage.stage_id}</option>)}</select></label>
       <label>Charla<input required value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Nombre de la charla" /></label>
       <label>Fuente<select value={source} onChange={(event) => setSource(event.target.value)}><option value="obs">OBS</option><option value="file">Grabación</option><option value="microphone">Micrófono</option></select></label>
       {source === "microphone" && <label>Dispositivo<select value={microphone} onChange={(event) => setMicrophone(event.target.value)}>{microphones.map((name) => <option key={name}>{name}</option>)}</select></label>}
@@ -142,11 +146,12 @@ function SessionForm({ csrf, onCreated, desktop }) {
     {source === "obs" && <p className="input-hint">OBS: servidor <code>rtmp://localhost:1935/live</code> · clave <code>stage-{stageId}</code></p>}
     {error && <p className="surface-error" role="alert">{error}</p>}
     {recordingPath && <p className="input-hint">Original de micrófono guardado en: {recordingPath}</p>}
-    <button type="submit" disabled={busy}>{busy ? "Preparando…" : "Preparar sesión"}</button>
+    <button className="glass-button glass-button-primary" type="submit" disabled={busy}>{busy ? "Preparando…" : "Preparar sesión"}</button>
   </form>;
 }
 
 function Operations({ user, onLogout }) {
+  const stages = useStageOptions();
   const location = useLocation();
   const page = location.pathname.split('/')[2] || 'overview';
   const [rows, setRows] = useState([]);
@@ -158,6 +163,8 @@ function Operations({ user, onLogout }) {
   const [newPassword, setNewPassword] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [cloudKey, setCloudKey] = useState({ state: 'missing', configured: false });
+  // Una vez mostrada, la guía sigue en Resumen hasta salir de la página: así se ven los pasos que quedan.
+  const [setupSeen, setSetupSeen] = useState(false);
   const desktop = globalThis.omniDesktop;
 
   const refresh = useCallback(async () => {
@@ -243,17 +250,25 @@ function Operations({ user, onLogout }) {
   }
 
   const titles = {
-    overview: ['Resumen del evento', 'Señal, proveedor y alertas de las tres salas.'],
+    overview: ['Resumen del evento', 'Señal, proveedor y alertas de hasta diez salas.'],
     rooms: ['Salas y sesiones', 'Prepará las fuentes y verificá los permisos.'],
     broadcasts: ['Transmisiones', 'Una salida externa por sala, con idioma elegido.'],
     archive: ['Archivo', 'Consultá y exportá las cláusulas confirmadas.'],
     integrations: ['Integraciones', 'Configurá Gemini, el proveedor y los modelos.'],
     system: ['Sistema y operadores', 'Servicios, equipo y cuentas individuales.'],
+    setup: ['Primeros pasos', 'Dejá lista esta computadora para el evento.'],
   };
+  const modelsReady = Boolean(desktopStatus?.models?.asr && desktopStatus?.models?.gemma);
+  const servicesReady = Object.values(desktopStatus?.services || {}).every(Boolean);
+  const setupPending = Boolean(desktop && desktopStatus) && (!modelsReady || !servicesReady);
+  if (setupPending && !setupSeen) setSetupSeen(true);
+  const showSetup = Boolean(desktop) && (page === 'setup' || (page === 'overview' && (setupPending || setupSeen)));
+  const setupGuide = showSetup && <SetupGuide desktop={desktop} desktopStatus={desktopStatus} cloudKey={cloudKey}
+    onChanged={async () => setDesktopStatus(await desktop.status())} />;
   const heading = titles[page] || titles.overview;
   const sessionList = <section className="operator-panel"><div className="panel-heading"><div><p className="section-index">REGISTRO</p><h2>Sesiones y archivo</h2></div><span>{sessions.length}</span></div>
     {!sessions.length && <p className="empty-state">Las sesiones confirmadas aparecerán aquí.</p>}
-    <div className="session-list">{sessions.map((session) => <div className="session-entry" key={session.id}><Link to={`/operator/archive/${session.id}?lang=es`}><span>{session.title}</span><small>Sala {session.stage_id} · {session.ended_at ? 'Finalizada' : 'Activa'}</small><b>↗</b></Link>{!session.ended_at && page === 'rooms' && <button type="button" onClick={() => endSession(session)}>Finalizar</button>}</div>)}</div>
+    <div className="session-list">{sessions.map((session) => <div className="session-entry" key={session.id}><Link to={`/operator/archive/${session.id}?lang=es`}><span>{session.title}</span><small>Sala {session.stage_id} · {session.ended_at ? 'Finalizada' : 'Activa'}</small><b>↗</b></Link>{!session.ended_at && page === 'rooms' && <button className="glass-button glass-button-danger" type="button" onClick={() => endSession(session)}>Finalizar</button>}</div>)}</div>
   </section>;
   const providerPanel = <section className="operator-panel"><p className="section-index">MOTOR</p><h2>Proveedor</h2>
     {page === 'integrations' && <label>Modo<select value={provider.mode} onChange={(event) => setMode(event.target.value)}><option value="auto">Automático</option><option value="cloud">Nube preferida</option><option value="local">Gemma local</option></select></label>}
@@ -261,16 +276,16 @@ function Operations({ user, onLogout }) {
     <dl className="system-status">{Object.entries(provider.stages || {}).map(([stage, value]) => <div key={stage}><dt>Sala {stage} · {value.provider}{value.ready ? ' · listo' : ' · no disponible'}</dt><dd>{value.cloud_audio_minutes || 0} min · ~USD {Number(value.cloud_cost_usd_estimate || 0).toFixed(3)}{value.dropped_clauses ? ` · ${value.dropped_clauses} perdidas` : ''}</dd></div>)}</dl>
   </section>;
 
-  return <main className="operator-root">
-    <header className="operator-header"><Link className="wordmark" to="/">OMNI<span>STAGE</span></Link><div><span>OPERACIÓN · {user.email}</span><button type="button" onClick={onLogout}>Salir</button></div></header>
-    <nav className="operator-nav" aria-label="Operación">
-      {[["/operator", "Resumen"], ["/operator/rooms", "Salas"], ["/operator/broadcasts", "Transmisiones"], ["/operator/archive", "Archivo"], ["/operator/integrations", "Integraciones"], ["/operator/system", "Sistema y operadores"]].map(([url, label]) =>
-        <NavLink key={url} to={url} end={url === '/operator'}>{label}</NavLink>)}
-    </nav>
-    <div className="operator-intro"><div><p className="section-index">PILOTO OPERATIVO / TRES SALAS</p><h1>{heading[0]}<span>.</span></h1></div><p>{heading[1]}</p></div>
+  return <div className="operator-root operator-shell">
+    <OperatorSidebar user={user} onLogout={onLogout} />
+    <main className="operator-content">
+    <header className="operator-header"><div><span className="operator-header-eyebrow">OPERACIÓN EN VIVO</span><strong>OmniStage / Nerdearla 2026</strong></div><span className="operator-header-status"><i aria-hidden="true" />{rows.filter((row) => row.stream_up && row.audio_up).length} {rows.filter((row) => row.stream_up && row.audio_up).length === 1 ? 'sala' : 'salas'} con señal</span></header>
+    <div className="operator-intro"><div><p className="section-index">OPERACIÓN / HASTA DIEZ SALAS</p><h1>{heading[0]}<span>.</span></h1></div><p>{heading[1]}</p></div>
     {loadError && <p className="surface-error" role="alert">{loadError}</p>}
     <div className="operator-layout" data-page={page}>
       <div className="operator-main">
+        {setupGuide}
+        {page === 'setup' && !desktop && <section className="operator-panel"><p className="input-hint">La guía de instalación está disponible en la app de escritorio.</p></section>}
         {(page === 'overview' || page === 'rooms') && <section className="operator-panel">
           <div className="panel-heading"><div><p className="section-index">EN VIVO</p><h2>Estado de las salas</h2></div><span>{rows.length.toString().padStart(2, '0')}</span></div>
           {!rows.length && <p className="empty-state">No hay salas transmitiendo. Prepará una sesión y conectá OBS, un archivo o un micrófono.</p>}
@@ -283,15 +298,15 @@ function Operations({ user, onLogout }) {
             {(row.alarms || []).length > 0 && <div className="room-alarms">{row.alarms.map((alarm) => <span key={alarm.code} data-alarm={alarm.code}>{ALARM_LABELS[alarm.code] || alarm.code}</span>)}</div>}
           </article>)}</div>
         </section>}
-        {page === 'rooms' && <><SessionForm csrf={user.csrf_token} onCreated={refresh} desktop={desktop} />{sessionList}</>}
+        {page === 'rooms' && <><SessionForm csrf={user.csrf_token} onCreated={refresh} desktop={desktop} stages={stages} />{sessionList}</>}
         {page === 'archive' && sessionList}
         {page === 'broadcasts' && <BroadcastPanel desktop={desktop} />}
         {page === 'integrations' && <section className="operator-panel"><p className="section-index">GEMINI</p><h2>Clave de nube</h2>
           <p className="input-hint">Estado: <strong>{cloudKey.configured && ['invalid', 'offline'].includes(cloudKey.state)
             ? 'Clave anterior activa; nueva clave sin validar'
             : ({ missing: 'Sin clave', validating: 'Validando…', ready: 'Clave validada', invalid: 'Clave rechazada', offline: 'Sin conexión a Gemini' })[cloudKey.state] || 'Sin comprobar'}</strong>. El motor local funciona sin clave.</p>
-          <form className="field-stack" onSubmit={saveIntegration}><label>Clave de Gemini facturable<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} /></label><button type="submit" disabled={!desktop || !apiKey.trim() || cloudKey.state === 'validating'}>Validar y guardar</button></form>
-          {cloudKey.configured && <button type="button" onClick={removeIntegration}>Borrar clave guardada</button>}
+          <form className="field-stack" onSubmit={saveIntegration}><label>Clave de Gemini facturable<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} /></label><button className="glass-button glass-button-primary" type="submit" disabled={!desktop || !apiKey.trim() || cloudKey.state === 'validating'}>Validar y guardar</button></form>
+          {cloudKey.configured && <button className="glass-button glass-button-danger" type="button" onClick={removeIntegration}>Borrar clave guardada</button>}
           {cloudKey.error && <p className="surface-error" role="alert">{cloudKey.error}</p>}
           <p className="input-hint">La clave se guarda cifrada en el perfil de Windows y no se muestra a la audiencia.</p>
         </section>}
@@ -305,16 +320,17 @@ function Operations({ user, onLogout }) {
         {(page === 'overview' || page === 'integrations') && providerPanel}
         {page === 'integrations' && <section className="operator-panel"><p className="section-index">MODELOS</p><h2>Motor local</h2>
           {desktopStatus ? <dl className="system-status">{Object.entries(desktopStatus.models || {}).map(([name, value]) => <div key={name}><dt>{name}</dt><dd data-on={value ? '1' : '0'}>{value ? 'Instalado' : 'Falta instalar'}</dd></div>)}</dl> : <p className="input-hint">Estado disponible desde la app de escritorio.</p>}
-          {desktop && <button type="button" onClick={importModels}>Importar paquete de modelos</button>}
+          {desktop && <button className="glass-button glass-button-secondary" type="button" onClick={importModels}>Importar paquete de modelos</button>}
         </section>}
         {page === 'integrations' && <section className="operator-panel"><p className="section-index">OBS</p><h2>Salidas de video</h2>
-          <p className="input-hint">Instalación en la ruta habitual: {desktopStatus?.obsInstalled ? 'Detectada' : 'No detectada'}. Para tres salidas RTMP, abrí tres instancias OBS con perfiles y puertos WebSocket distintos.</p>
+          <p className="input-hint">Instalación en la ruta habitual: {desktopStatus?.obsInstalled ? 'Detectada' : 'No detectada'}. Cada salida RTMP activa necesita su instancia OBS y un puerto WebSocket distinto.</p>
           <a href="https://obsproject.com/download" target="_blank" rel="noreferrer">Descargar OBS Studio ↗</a>
         </section>}
-        {page === 'system' && <section className="operator-panel"><p className="section-index">EQUIPO</p><h2>Agregar operador</h2><form className="field-stack" onSubmit={addOperator}><label>Correo<input type="email" required value={newEmail} onChange={(event) => setNewEmail(event.target.value)} /></label><label>Contraseña inicial<input type="password" minLength={12} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label><button type="submit">Crear cuenta</button></form></section>}
+        {page === 'system' && <section className="operator-panel"><p className="section-index">EQUIPO</p><h2>Agregar operador</h2><form className="field-stack" onSubmit={addOperator}><label>Correo<input type="email" required value={newEmail} onChange={(event) => setNewEmail(event.target.value)} /></label><label>Contraseña inicial<input type="password" minLength={12} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label><button className="glass-button glass-button-primary" type="submit">Crear cuenta</button></form></section>}
       </aside>
     </div>
-  </main>;
+    </main>
+  </div>;
 }
 
 export default function Admin() {

@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import (
@@ -42,6 +43,7 @@ from app.orchestrator import StageOrchestrator
 from app.state import CaptureNodeState, RuntimeState, WebSocketHub, WorkerState
 from app.storage import SessionStore
 from app.transcriber_monitor import TranscriberMonitor
+from app.web_storage import WebStore
 from contracts.events import AudioSegment
 
 logging.basicConfig(
@@ -58,23 +60,40 @@ orchestrator = StageOrchestrator(settings, runtime, hub, context_provider)
 caption_fanout = CaptionFanout(settings, runtime, hub, context_provider)
 transcriber_monitor = TranscriberMonitor(settings, runtime)
 store: SessionStore | None = None
+web_store: WebStore | None = None
 hybrid_pipeline: HybridPipeline | None = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global store, hybrid_pipeline
+    global store, web_store, hybrid_pipeline
     store = SessionStore(settings.db_path, settings.retention_days)
     store.purge_expired()
+    web_path = Path(settings.web_db_path) if settings.web_db_path else Path(settings.db_path).with_name("omnistage-web.db")
+    if web_path.resolve() == Path(settings.db_path).resolve():
+        raise ValueError("WEB_DB_PATH must differ from DB_PATH")
+    web_store = WebStore(web_path)
+    web_store.purge_expired()
+    for session in store.list_sessions():
+        if session["ended_at"] is not None or not all(
+            session["permissions"].get(key) for key in ("publish", "retain")
+        ):
+            continue
+        for lang in ("es", "en"):
+            for caption in store.captions(session["id"], lang):
+                web_store.record_caption(caption, session["expires_at"])
     async def retention_loop() -> None:
         while True:
             await asyncio.sleep(3600)
             if store is not None:
                 store.purge_expired()
+            if web_store is not None:
+                web_store.purge_expired()
 
     retention_task = asyncio.create_task(retention_loop(), name="caption-retention")
     orchestrator.store = store
     caption_fanout.store = store
+    caption_fanout.web_store = web_store
     if settings.transport_mode == "local":
         hybrid_pipeline = HybridPipeline(settings, runtime, context_provider, caption_fanout, store)
         saved_mode = store.get_setting("provider_mode")
@@ -99,7 +118,10 @@ async def lifespan(_: FastAPI):
             await transcriber_monitor.close()
             await caption_fanout.close()
         caption_fanout.store = None
+        caption_fanout.web_store = None
         orchestrator.store = None
+        web_store.close()
+        web_store = None
         store.close()
         store = None
 
@@ -484,12 +506,23 @@ async def publish_event(stage_id: str, lang: str, event: StreamEvent) -> dict[st
     if store is not None:
         current = store.current_session(stage_id)
         allowed = bool(current and current["permissions"].get("publish"))
+        if (allowed and event.type == "commit" and web_store is not None
+                and current["permissions"].get("retain")):
+            web_store.record_caption(payload, current["expires_at"])
     delivered = await hub.publish(stage_id, lang, payload) if allowed else 0
     return {"delivered": delivered}
 
 
 @app.websocket("/ws/stages/{stage_id}/{lang}")
-async def stage_websocket(websocket: WebSocket, stage_id: str, lang: str) -> None:
+async def stage_websocket(
+    websocket: WebSocket, stage_id: str, lang: str
+) -> None:
+    await serve_stage_websocket(websocket, stage_id, lang)
+
+
+async def serve_stage_websocket(
+    websocket: WebSocket, stage_id: str, lang: str, public_store: WebStore | None = None
+) -> None:
     if (
         not STAGE_ID_PATTERN.fullmatch(stage_id)
         or not LANG_PATTERN.fullmatch(lang)
@@ -499,6 +532,8 @@ async def stage_websocket(websocket: WebSocket, stage_id: str, lang: str) -> Non
         return
 
     async def snapshot_payload() -> dict[str, Any]:
+        if public_store is not None:
+            return public_store.snapshot(stage_id, lang)
         session = store.current_session(stage_id) if store else None
         return {
             "type": "snapshot",
@@ -698,8 +733,10 @@ async def create_session(
     operator: Annotated[dict[str, str], Depends(require_operator)],
 ) -> dict[str, Any]:
     validate_partition(value.stage_id)
-    if settings.transport_mode == "local" and value.stage_id not in {"1", "2", "3"}:
-        raise HTTPException(422, "native pilot supports stages 1, 2 and 3")
+    if settings.transport_mode == "local" and value.stage_id not in {
+        stage.id for stage in await context_provider.list()
+    }:
+        raise HTTPException(422, "stage is not configured in the native catalog")
     if not all((value.permissions.capture, value.permissions.transcribe,
                 value.permissions.translate, value.permissions.publish,
                 value.permissions.retain, value.permissions.evidence_reference.strip())):
@@ -746,6 +783,8 @@ async def operator_permissions(
         raise HTTPException(422, "permission evidence reference is required")
     if not required_store().set_permissions(session_id, permissions.model_dump()):
         raise HTTPException(404, "session not found")
+    if web_store is not None and (not permissions.publish or not permissions.retain):
+        web_store.revoke_session(session_id)
     required_store().audit(operator["id"], "permissions", session_id)
     if hybrid_pipeline is not None:
         session = required_store().get_session(session_id)

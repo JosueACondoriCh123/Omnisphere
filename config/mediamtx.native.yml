@@ -14,5 +14,5 @@ webrtc: no
 srt: no
 moq: no
 paths:
-  "~^live/stage-(1|2|3)$":
+  "~^live/stage-([1-9]|10)$":
     source: publisher

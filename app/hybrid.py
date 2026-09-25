@@ -77,7 +77,7 @@ class CloudTranslator:
         response = await self._client.aio.models.generate_content(
             model=self.settings.gemini_translation_model,
             contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0),
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
         data = json.loads(response.text or "{}")
         source = str(data.get("source_language") or "")
@@ -292,6 +292,12 @@ class HybridPipeline:
                 self._queue_local(route, segment)
         route.pending.clear()
 
+    def _safe_cloud_error(self, error: Exception) -> str:
+        message = str(error) or type(error).__name__
+        if self.settings.gemini_api_key:
+            message = message.replace(self.settings.gemini_api_key, "[redacted]")
+        return message[:300]
+
     async def _drain_cloud_finals(self, route: StageRoute) -> None:
         async with route.cloud_match_lock:
             while route.provider == "cloud" and route.cloud_finals:
@@ -312,8 +318,9 @@ class HybridPipeline:
                     en = original if source == "en" else translated
                     await self._publish(segment, original, source, es, en, "gemini-live", final=True)
                 except Exception as exc:  # noqa: BLE001 - SDK transports raise backend-specific exceptions
-                    logger.warning("Cloud caption failed for %s: %s", route.stage_id, exc)
-                    self._mark_cloud_failed(route, str(exc))
+                    reason = self._safe_cloud_error(exc)
+                    logger.warning("Cloud caption failed for %s: %s", route.stage_id, reason)
+                    self._mark_cloud_failed(route, reason)
                     return
                 route.cloud_finals.popleft()
                 route.translation_input_tokens += input_tokens
@@ -357,6 +364,11 @@ class HybridPipeline:
                 self.runtime.transcriber_up = False
                 self.runtime.transcriber_error = str(exc)[:300]
                 logger.error("Local inference failed for %s: %s", route.stage_id, exc)
+                if (segment.is_clause_end and segment.session_id == route.session_id
+                        and segment.t0_ms not in route.committed_windows):
+                    route.local_segments.appendleft(segment)
+                    route.segment_ready.set()
+                    await asyncio.sleep(0.5)
 
     async def _publish(
         self,
@@ -398,18 +410,27 @@ class HybridPipeline:
 
         try:
             client = genai.Client(api_key=self.settings.gemini_api_key)
+            context = await self.context_provider.get(route.stage_id)
+            vocabulary = [term.strip() for term in context.glossary
+                          if isinstance(term, str) and term.strip()][:100]
             config = types.LiveConnectConfig(
                 response_modalities=["TEXT"],
-                input_audio_transcription=types.AudioTranscriptionConfig(language_codes=[]),
+                input_audio_transcription=types.AudioTranscriptionConfig(
+                    language_codes=[], custom_vocabulary=vocabulary,
+                ),
             )
             while route.provider == "cloud" and not self._closed:
                 async with client.aio.live.connect(model=self.settings.gemini_live_model, config=config) as session:
                     route.cloud_connected = True
                     self.runtime.transcriber_up = True
                     self.runtime.transcriber_model = self.settings.gemini_live_model
-                    async def send() -> None:
-                        while route.provider == "cloud" and not self._closed:
-                            pcm = await route.frame_queue.get()
+                    stop_sending = asyncio.Event()
+                    async def send(stop_event: asyncio.Event = stop_sending) -> None:
+                        while route.provider == "cloud" and not self._closed and not stop_event.is_set():
+                            try:
+                                pcm = await asyncio.wait_for(route.frame_queue.get(), timeout=0.1)
+                            except TimeoutError:
+                                continue
                             await session.send_realtime_input(
                                 audio=types.Blob(data=pcm, mime_type="audio/pcm;rate=16000")
                             )
@@ -420,8 +441,8 @@ class HybridPipeline:
                             content = response.server_content
                             if content is None:
                                 continue
-                            interim = content.interim_input_transcription
-                            final = content.input_transcription
+                            interim = getattr(content, "interim_input_transcription", None)
+                            final = getattr(content, "input_transcription", None)
                             if interim and interim.text:
                                 await self._cloud_text(route, interim.text, False)
                             if final and final.text:
@@ -436,6 +457,8 @@ class HybridPipeline:
                             return_when=asyncio.FIRST_COMPLETED,
                         )
                         if not done:
+                            stop_sending.set()
+                            await asyncio.wait_for(send_task, timeout=1)
                             await session.send_realtime_input(audio_stream_end=True)
                             try:
                                 await asyncio.wait_for(asyncio.shield(receive_task), timeout=LIVE_FINAL_GRACE_SECONDS)
@@ -463,8 +486,9 @@ class HybridPipeline:
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - SDK transports raise backend-specific exceptions
-            logger.error("Gemini Live failed for %s: %s", route.stage_id, exc)
-            self._mark_cloud_failed(route, str(exc))
+            reason = self._safe_cloud_error(exc)
+            logger.error("Gemini Live failed for %s: %s", route.stage_id, reason)
+            self._mark_cloud_failed(route, reason)
         finally:
             route.cloud_connected = False
             route.cloud_task = None

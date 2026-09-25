@@ -13,8 +13,10 @@ def test_health() -> None:
 def test_stage_catalog_comes_from_the_backend_context() -> None:
     items = client.get("/api/stages").json()["items"]
     by_id = {item["stage_id"]: item for item in items}
-    assert by_id["1"]["name"] == "Stage 1"
+    assert by_id["1"]["name"] == "Sala 1"
     assert by_id["1"]["languages"] == ["es", "en"]
+    assert len(items) == 10
+    assert by_id["10"]["name"] == "Sala 10"
 
 
 @pytest.mark.asyncio

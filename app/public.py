@@ -7,6 +7,7 @@ from pathlib import Path
 from time import time
 
 from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app import main
@@ -16,6 +17,13 @@ public_app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+)
+
+public_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in os.environ.get("OMNISTAGE_PUBLIC_CORS_ORIGINS", "").split(",") if origin.strip()],
+    allow_methods=["GET"],
+    allow_headers=[],
 )
 
 
@@ -29,12 +37,17 @@ async def public_stages():
             item["active_session_id"] = None
             item["stream_up"] = False
             item["audio_up"] = False
+    if main.web_store is not None:
+        main.web_store.replace_stages(result["items"])
+        result["items"] = main.web_store.stages()
     return result
 
 
 @public_app.websocket("/ws/stages/{stage_id}/{lang}")
 async def public_captions(websocket: WebSocket, stage_id: str, lang: str) -> None:
-    await main.stage_websocket(websocket, stage_id, lang)
+    if main.web_store is not None:
+        await public_stages()
+    await main.serve_stage_websocket(websocket, stage_id, lang, main.web_store)
 
 
 @public_app.get("/healthz")

@@ -23,6 +23,10 @@ def prepare(manifest: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
             raise ValueError(f"{recording.get('id')}: training permission is not documented")
         if recording.get("reference_origin") != "human_verified":
             raise ValueError(f"{recording.get('id')}: reference is not independently verified")
+        source = recording.get("source_lang")
+        if source not in {"es", "en"}:
+            raise ValueError(f"{recording.get('id')}: source_lang must be es or en")
+        target = "en" if source == "es" else "es"
         if not Path(recording["audio_path"]).is_file():
             raise ValueError(f"{recording.get('id')}: original audio not found")
         talks[split].add(recording["talk_id"])
@@ -33,24 +37,23 @@ def prepare(manifest: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
         for clause in clauses:
             if clause.get("hypothesis_provider") == "cloud" and not permissions.get("cloud"):
                 raise ValueError(f"{recording['id']}: cloud hypothesis lacks Google permission")
-            for source, target in (("es", "en"), ("en", "es")):
-                original = clause.get(f"reference_{source}", "").strip()
-                translated = clause.get(f"reference_{target}", "").strip()
-                hypothesis = clause.get(f"hypothesis_{source}", "").strip()
-                if not original or not translated or not hypothesis:
-                    raise ValueError(f"{recording['id']}: hypotheses and human references are required")
-                prompt = (
-                    f"Correct recognition errors in this {source} conference caption, then translate it to {target}. "
-                    "Preserve meaning, product names, commands, and technical Spanglish. "
-                    "Do not add content. Return only JSON with keys corrected and translation.\n"
-                    f"Protected terms: {', '.join(recording.get('glossary', [])[:100])}\n"
-                    f"Caption: {hypothesis}"
-                )
-                splits[split].append({"messages": [
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": json.dumps(
-                        {"corrected": original, "translation": translated}, ensure_ascii=False)},
-                ]})
+            original = clause.get(f"reference_{source}", "").strip()
+            translated = clause.get(f"reference_{target}", "").strip()
+            hypothesis = clause.get(f"hypothesis_{source}", "").strip()
+            if not original or not translated or not hypothesis:
+                raise ValueError(f"{recording['id']}: source hypothesis and human references are required")
+            prompt = (
+                f"Correct recognition errors in this {source} conference caption, then translate it to {target}. "
+                "Preserve meaning, product names, commands, and technical Spanglish. "
+                "Do not add content. Return only JSON with keys corrected and translation.\n"
+                f"Protected terms: {', '.join(recording.get('glossary', [])[:100])}\n"
+                f"Caption: {hypothesis}"
+            )
+            splits[split].append({"messages": [
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": json.dumps(
+                    {"corrected": original, "translation": translated}, ensure_ascii=False)},
+            ]})
     if not splits["train"] or not splits["holdout"]:
         raise ValueError("both training and reserved holdout data are required")
     if talks["train"] & talks["holdout"] or speakers["train"] & speakers["holdout"]:

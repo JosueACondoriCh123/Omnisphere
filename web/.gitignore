@@ -15,6 +15,7 @@ test-results
 playwright-report
 blob-report
 dev-dist
+.vercel
 
 # Editor directories and files
 .vscode/*

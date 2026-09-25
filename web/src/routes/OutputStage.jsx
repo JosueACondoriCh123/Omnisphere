@@ -20,7 +20,7 @@ export default function OutputStage() {
       .finally(() => setChecked(true));
   }, []);
 
-  if (!/^[123]$/.test(stageId)) return <main className="output-access">Sala inválida.</main>;
+  if (!/^(?:[1-9]|10)$/.test(stageId)) return <main className="output-access">Sala inválida.</main>;
   if (!checked) return <main className="output-access">Verificando acceso…</main>;
   if (!operator) return <main className="output-access"><h1>Salida protegida</h1><p>Iniciá sesión como operador en este navegador y volvé a abrir la salida.</p><Link to="/operator">Ingresar</Link></main>;
 

@@ -1,0 +1,65 @@
+{
+  "name": "omnistage-desktop",
+  "version": "0.1.3",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "test": "node --test model-download.test.cjs agent-a-gemini/cloud-key.test.cjs agent-b-outputs/manager.test.cjs agent-b-outputs/obs-client.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "org.omnistage.desktop",
+    "productName": "OmniStage",
+    "asar": true,
+    "files": [
+      "main.cjs",
+      "stages.cjs",
+      "preload.cjs",
+      "model-download.cjs",
+      "agent-a-gemini/cloud-key.cjs",
+      "agent-b-outputs/manager.cjs",
+      "agent-b-outputs/obs-client.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web"
+      },
+      {
+        "from": "../config/mediamtx.native.yml",
+        "to": "mediamtx.yml"
+      },
+      {
+        "from": "../config/stages.json",
+        "to": "config/stages.json"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "runtime",
+        "to": "runtime"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OmniStage",
+      "runAfterFinish": true,
+      "include": "installer.nsh"
+    }
+  }
+}

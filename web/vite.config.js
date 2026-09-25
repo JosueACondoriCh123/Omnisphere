@@ -1,8 +1,27 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  if (mode === 'vercel') {
+    const env = loadEnv(mode, process.cwd(), 'VITE_')
+    for (const [name, protocols] of [
+      ['VITE_PUBLIC_API_ORIGIN', ['https:']],
+      ['VITE_PUBLIC_WS_ORIGIN', ['wss:']],
+    ]) {
+      const value = env[name]?.trim()
+      if (!value) continue
+      let url
+      try { url = new URL(value) } catch { throw new Error(`${name} debe ser un origen público válido`) }
+      if (!protocols.includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+        throw new Error(`${name} debe ser un origen público ${protocols[0]} sin ruta ni credenciales`)
+      }
+    }
+    if (env.VITE_PUBLIC_WS_ORIGIN && !env.VITE_PUBLIC_API_ORIGIN) {
+      throw new Error('VITE_PUBLIC_WS_ORIGIN requiere VITE_PUBLIC_API_ORIGIN')
+    }
+  }
+  return {
   plugins: [
     react(),
     VitePWA({
@@ -41,6 +60,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     reporters: ['verbose'],
-    exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
+    exclude: ['e2e/**', 'vercel-e2e/**', 'node_modules/**', 'dist/**'],
   },
+  }
 })

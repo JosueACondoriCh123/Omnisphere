@@ -12,6 +12,7 @@ from app.context import ContextProvider
 from app.metrics import PIPELINE_METRICS
 from app.state import RuntimeState, WebSocketHub
 from app.storage import SessionStore
+from app.web_storage import WebStore
 from contracts.events import CaptionEvent, TraceStamp
 
 logger = logging.getLogger("nerdearla.fanout")
@@ -34,6 +35,7 @@ class CaptionFanout:
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self.store: SessionStore | None = None
+        self.web_store: WebStore | None = None
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name="caption-fanout")
@@ -158,5 +160,8 @@ class CaptionFanout:
             await self.runtime.record_committed(event.stage_id, lang, payload)
             assert self.store is None or session is not None
             if self.store is None or session["permissions"].get("publish"):
+                if (self.web_store is not None and payload["state"] == "committed"
+                        and session is not None and session["permissions"].get("retain")):
+                    self.web_store.record_caption(payload, session["expires_at"])
                 delivered += await self.hub.publish(event.stage_id, lang, payload)
         return delivered

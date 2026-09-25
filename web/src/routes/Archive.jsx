@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { archiveFilename, downloadText, toSrt, toTxt, toVtt } from "../lib/export.js";
 import { useSurfaceClass } from "../lib/stages.js";
 import { useCaptions } from "../lib/useCaptions.js";
+import OperatorSidebar from "../components/OperatorSidebar.jsx";
 
 export default function Archive() {
   useSurfaceClass("archive");
@@ -35,9 +36,11 @@ export default function Archive() {
   }
 
   return (
-    <main className="archive-root redesigned-archive">
+    <div className="archive-root redesigned-archive operator-shell">
+      <OperatorSidebar />
+      <main className="operator-content archive-content">
       <header className="archive-header">
-        <Link className="wordmark" to="/operator">OMNI<span>STAGE</span></Link>
+        <span className="operator-header-eyebrow">ARCHIVO / OPERACIÓN</span>
         <Link to="/operator">← Volver al panel</Link>
       </header>
       <div className="archive-title">
@@ -54,11 +57,12 @@ export default function Archive() {
       }}><option value="es">Español</option><option value="en">English</option></select></label>
       <div className="archive-actions">
         {[["srt", toSrt, "application/x-subrip"], ["vtt", toVtt, "text/vtt"], ["txt", toTxt, "text/plain"]].map(([ext, factory, mime]) => mock ?
-          <button key={ext} type="button" onClick={() => save(ext, factory, mime)}>Descargar {ext.toUpperCase()}</button> :
-          <a key={ext} href={`/api/operator/sessions/${encodeURIComponent(sessionId)}/export?lang=${lang}&format=${ext}`}>Descargar {ext.toUpperCase()}</a>
+          <button className={`glass-button ${ext === "srt" ? "glass-button-primary" : "glass-button-secondary"}`} key={ext} type="button" onClick={() => save(ext, factory, mime)}>Descargar {ext.toUpperCase()}</button> :
+          <a className={`glass-button ${ext === "srt" ? "glass-button-primary" : "glass-button-secondary"}`} key={ext} href={`/api/operator/sessions/${encodeURIComponent(sessionId)}/export?lang=${lang}&format=${ext}`}>Descargar {ext.toUpperCase()}</a>
         )}
       </div>
       <pre className="srt-preview">{preview || "Todavía no hay cláusulas committed."}</pre>
-    </main>
+      </main>
+    </div>
   );
 }

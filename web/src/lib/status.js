@@ -12,6 +12,8 @@ export function statusLabel(status) {
       return "en vivo";
     case "mock":
       return "demo";
+    case "unavailable":
+      return "transmisión aún no disponible";
     default:
       return "conectando";
   }

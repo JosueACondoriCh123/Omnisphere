@@ -194,6 +194,161 @@ async def test_live_session_renews_before_limit_without_fabricated_caption(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_live_final_with_current_sdk_commits_real_clause_and_uses_glossary(tmp_path, monkeypatch):
+    from google import genai
+
+    settings = Settings(db_path=str(tmp_path / "pilot.db"), transport_mode="local",
+                        gemini_api_key="test-key", provider_mode="cloud",
+                        stage_context_file="config/stages.json")
+    store = SessionStore(settings.db_path)
+    session = store.start_session("1", permissions={
+        "capture": True, "transcribe": True, "translate": True,
+        "cloud": True, "publish": True, "retain": True,
+    })
+    runtime = RuntimeState()
+    context = ContextProvider(settings)
+    fanout = CaptionFanout(settings, runtime, WebSocketHub(), context)
+    fanout.store = store
+    pipeline = HybridPipeline(settings, runtime, context, fanout, store)
+    calls = []
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def send_realtime_input(self, **_kwargs):
+            return None
+
+        async def receive(self):
+            yield types.SimpleNamespace(server_content=types.SimpleNamespace(
+                input_transcription=types.SimpleNamespace(text="Hola Nerdearla")))
+            await asyncio.Event().wait()
+
+    def connect(**kwargs):
+        calls.append(kwargs)
+        return FakeSession()
+
+    monkeypatch.setattr(genai, "Client", lambda **_kwargs: types.SimpleNamespace(
+        aio=types.SimpleNamespace(live=types.SimpleNamespace(connect=connect))))
+
+    async def translate(text, _glossary):
+        return "es", text, "Hello Nerdearla", 2, 2
+
+    monkeypatch.setattr(pipeline.cloud_translation, "translate", translate)
+    route = StageRoute("1", session_id=session["id"], provider="cloud")
+    route.pending.append(AudioSegment.from_pcm(
+        "1", 1, 100, 500, b"\x00\x00" * 6400, True, -20,
+        session_id=session["id"], audio_end_wall_ms=123456))
+    pipeline.routes["1"] = route
+    route.cloud_task = asyncio.create_task(pipeline._cloud_worker(route))
+    for _ in range(100):
+        if store.captions(session["id"], "es"):
+            break
+        await asyncio.sleep(0.01)
+    captions = store.captions(session["id"], "es")
+    assert len(captions) == 1
+    assert captions[0]["provider"] == "gemini-live"
+    assert captions[0]["audio_end_wall_ms"] == 123456
+    assert len(store.captions(session["id"], "en")) == 1
+    assert "Nerdearla" in calls[0]["config"].input_audio_transcription.custom_vocabulary
+    await pipeline.close()
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_live_connection_loss_replays_clause_locally_and_retries(tmp_path, monkeypatch):
+    from google import genai
+
+    settings = Settings(db_path=str(tmp_path / "pilot.db"), transport_mode="local",
+                        gemini_api_key="test-key", provider_mode="auto")
+    store = SessionStore(settings.db_path)
+    session = store.start_session("1", permissions={
+        "capture": True, "transcribe": True, "translate": True,
+        "cloud": True, "publish": True, "retain": True,
+    })
+    runtime = RuntimeState()
+    context = ContextProvider(settings)
+    fanout = CaptionFanout(settings, runtime, WebSocketHub(), context)
+    fanout.store = store
+    pipeline = HybridPipeline(settings, runtime, context, fanout, store)
+
+    def fail_connect(**_kwargs):
+        raise OSError("network offline")
+
+    monkeypatch.setattr(genai, "Client", lambda **_kwargs: types.SimpleNamespace(
+        aio=types.SimpleNamespace(live=types.SimpleNamespace(connect=fail_connect))))
+
+    async def local_result(_pcm, _glossary):
+        return LocalResult("Hola", "es", "Hola", "Hello")
+
+    monkeypatch.setattr(pipeline.local, "process", local_result)
+    route = StageRoute("1", session_id=session["id"], provider="cloud")
+    route.pending.append(AudioSegment.from_pcm(
+        "1", 1, 100, 500, b"\x00\x00" * 6400, True, -20, session_id=session["id"]))
+    pipeline.routes["1"] = route
+    route.local_task = asyncio.create_task(pipeline._local_worker(route))
+    route.cloud_task = asyncio.create_task(pipeline._cloud_worker(route))
+    for _ in range(100):
+        if store.captions(session["id"], "es"):
+            break
+        await asyncio.sleep(0.01)
+    assert route.provider == "local"
+    assert route.failed_cloud
+    assert [item["provider"] for item in store.captions(session["id"], "es")] == ["local-gemma4"]
+
+    async def idle_cloud(_route):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(pipeline, "_cloud_worker", idle_cloud)
+    route.cloud_retry_at = 0
+    await pipeline.feed_frame("1", 600, b"\x00\x00" * 1600)
+    assert route.provider == "cloud"
+    assert len(store.captions(session["id"], "es")) == 1
+    await pipeline.close()
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_local_model_warmup_error_keeps_final_clause_until_it_succeeds(tmp_path, monkeypatch):
+    settings = Settings(db_path=str(tmp_path / "pilot.db"), transport_mode="local",
+                        provider_mode="local")
+    store = SessionStore(settings.db_path)
+    session = store.start_session("1", permissions={
+        "capture": True, "transcribe": True, "translate": True,
+        "publish": True, "retain": True,
+    })
+    runtime = RuntimeState()
+    context = ContextProvider(settings)
+    fanout = CaptionFanout(settings, runtime, WebSocketHub(), context)
+    fanout.store = store
+    pipeline = HybridPipeline(settings, runtime, context, fanout, store)
+    attempts = 0
+
+    async def transient_failure(_pcm, _glossary):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("Gemma warming")
+        return LocalResult("Hola", "es", "Hola", "Hello")
+
+    monkeypatch.setattr(pipeline.local, "process", transient_failure)
+    await pipeline.feed_segment(AudioSegment.from_pcm(
+        "1", 1, 100, 500, b"\x00\x00" * 6400, True, -20))
+    for _ in range(100):
+        if store.captions(session["id"], "es"):
+            break
+        await asyncio.sleep(0.01)
+    assert attempts == 2
+    assert len(store.captions(session["id"], "es")) == 1
+    assert len(store.captions(session["id"], "en")) == 1
+    await pipeline.close()
+    store.close()
+
+
+@pytest.mark.asyncio
 async def test_local_confirmed_clauses_leave_pending_buffer(tmp_path, monkeypatch):
     settings = Settings(db_path=str(tmp_path / "pilot.db"), transport_mode="local",
                         provider_mode="local")

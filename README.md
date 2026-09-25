@@ -6,6 +6,11 @@ documental de permisos, archivo SQLite y exportaciones SRT/VTT/TXT. El runtime
 nativo no requiere Redis ni Docker Desktop. El puerto 8080 se liga a loopback
 para operar; el puerto 8088 es de lectura para la LAN de esta demo.
 
+El catálogo y los controles admiten hasta **diez salas** (`stage-1` a `stage-10`).
+La concurrencia real de subtítulos y salidas en diez salas sigue pendiente de una
+prueba de carga en el equipo final; el piloto documentado de tres salas tampoco
+equivale a esa validación.
+
 La ruta de nube usa `gemini-3.5-transcribe-live` con PCM continuo y
 `gemini-3.5-flash-lite` para traducción. La ruta local usa faster-whisper para
 ASR y Gemma 4 E2B cuantizado para corrección/traducción. El modo automático
@@ -14,17 +19,19 @@ antes de emitirse y se conservan 30 días por defecto. Las claves se guardan en
 el almacén seguro de Windows de Electron.
 
 - [Instalador Windows y recursos requeridos](desktop/README.md)
+- [Landing y frontend público preparados para Vercel](web/README.md)
 - [Guía de ejecución de la demo](docs/demo-final.md)
 - [Estado medido y criterios pendientes](docs/demo-status.md)
 - [Matriz de validación y manifiesto de grabaciones](docs/piloto.md)
 - [Preparación legal del ajuste LoRA](training/README.md)
+- [Datasets prioritarios para el ajuste](training/DATASETS.md)
 
 El sistema **todavía no está certificado para el piloto**: la demo LAN requiere
 un instalador probado, modelos cargados, una cuenta Gemini facturable y
 grabaciones con permisos y referencias humanas. El objetivo de tres salas con
 p95 visible ≤5 s sigue siendo un criterio de aceptación pendiente de medir en
-hardware real. El dominio público y Cloudflare Tunnel quedan para una fase
-posterior.
+hardware real. La landing para Vercel está preparada; conectar el origen público
+mediante un dominio HTTPS o Cloudflare Tunnel queda para una fase posterior.
 
 - [Guía de cierre de la demo LAN](docs/demo-final.md)
 

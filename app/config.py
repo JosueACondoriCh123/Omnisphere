@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     worker_stale_seconds: int = Field(default=12, ge=5, le=300)
     allowed_origins: str = "*"
     db_path: str = "data/omnistage.db"
+    web_db_path: str = ""
     retention_days: int = Field(default=30, ge=1, le=365)
     transport_mode: str = "redis"  # native installer sets "local"
     provider_mode: str = "auto"  # auto, cloud or local

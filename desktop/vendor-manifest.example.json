@@ -1,0 +1,6 @@
+{
+  "ffmpeg.exe": { "version": "REEMPLAZAR", "source": "URL_OFICIAL", "sha256": "SHA256" },
+  "mediamtx.exe": { "version": "REEMPLAZAR", "source": "URL_OFICIAL", "sha256": "SHA256" },
+  "llama-server.exe": { "version": "REEMPLAZAR", "source": "URL_OFICIAL", "sha256": "SHA256" },
+  "cloudflared.exe": { "version": "REEMPLAZAR", "source": "URL_OFICIAL", "sha256": "SHA256" }
+}

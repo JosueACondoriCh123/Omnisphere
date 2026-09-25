@@ -1,16 +1,16 @@
 # Estado medido de la demo final
 
-Fecha de corte: 24 de septiembre de 2026. Estado de aceptación: **pendiente**.
+Fecha de corte: 25 de septiembre de 2026. Estado de aceptación: **pendiente**.
 Este documento registra únicamente comprobaciones ejecutadas; no sustituye
 el informe de la hora simultánea de cada ruta.
 
 | Comprobación | Resultado observado |
 | --- | --- |
-| Pruebas Python | 91 aprobadas; 2 avisos de deprecación de dependencias |
+| Pruebas Python | 96 aprobadas; 2 avisos de deprecación de dependencias |
 | Pruebas unitarias frontend | 16 aprobadas con `--maxWorkers=1` en la corrida final |
 | Pruebas de navegador escritorio/móvil | 20 aprobadas con Chromium Playwright; incluyen navegación de operación y salida protegida de reuniones |
-| Credenciales Gemini | 1 prueba Node aprobada: clave ausente, validación, reemplazo rechazado y borrado sin exponer secretos. Falta una clave real |
-| Salidas externas | 3 pruebas Node aprobadas: validación de destinos, aislamiento de tres salas y envío único de cláusulas confirmadas a Zoom simulado |
+| Credenciales Gemini | 1 prueba Node aprobada: comprueba acceso a ambos modelos, reemplazo rechazado, corte de red, reinicio y borrado sin exponer secretos. Falta una clave real |
+| Salidas externas | 7 pruebas Node aprobadas: destinos, tres salas, cifrado, autenticación OBS v5, envío único y recuperación Zoom después de reconectar |
 | Linter Python y frontend | sin errores |
 | FFmpeg y MediaMTX descargados | ejecutables responden a consulta de versión; SHA256 en `desktop/vendor/manifest.json` |
 | Gemma 4 E2B Q4_0 en RTX 4050 | servidor inicia y devuelve una traducción corta válida con razonamiento desactivado; memoria observada del modelo cercana a 1,7 GB en esa prueba |
@@ -21,12 +21,14 @@ el informe de la hora simultánea de cada ruta.
 | Separación LAN | la ruta de operador devolvió 404 en el origen público de prueba; `netstat` mostró a MediaMTX escuchando solo en `127.0.0.1:1935`, `:8554` y `:9997` tras desactivar MoQ y RTSP UDP |
 | Tres flujos sintéticos simultáneos | tres tonos generados por FFmpeg llegaron por RTMP a MediaMTX; el backend con workers congelados informó `stream_up=true` y `audio_up=true` en las tres salas. Esta prueba solo cubre transporte y supervisión, sin subtítulos ni fuentes físicas |
 | Salida HLS para reuniones | un flujo H.264/AAC sintético produjo una lista HLS en `127.0.0.1:8888` con HTTP 200; falta compartirlo en Zoom/Meet reales |
-| Renovación Live | prueba simulada de cierre y nueva sesión aprobada; falta prueba con cuenta real |
+| Renovación y recuperación Live | pruebas simuladas de cierre y nueva sesión, final sobre una cláusula VAD real, glosario, corte de red y reintento local aprobadas. El backend congelado usa `google-genai 2.25.0`; falta prueba con cuenta real |
 | Colector visible | abrió seis vistas Chromium (tres salas × dos idiomas) contra una fuente sintética y guardó dos captions por sala, uno por idioma; no es una medición del piloto |
-| App Electron empaquetada actual | arrancó MediaMTX y backend en un perfil limpio fuera del sandbox, mostró el panel de operación y expuso salud interna/pública 200; API de MediaMTX 200 y ruta de operador en origen público 404 |
+| App Electron instalada 0.1.1 | arrancó MediaMTX y backend desde la instalación temporal con un perfil aislado fuera del sandbox; salud interna/pública 200, API de MediaMTX 200 y ruta de operador en origen público 404 |
 | Importación offline de modelos | desde la interfaz empaquetada verificó los cinco SHA256, importó faster-whisper y Gemma en un perfil aislado y mostró ambos instalados |
-| Instalador Windows NSIS actual | `desktop/dist/OmniStage Setup 0.1.0.exe`, 928.481.184 bytes, SHA256 `D3C66AC6EA7DF6AFA2E729CCBE0E38E6B4093FA9109A2C81D8B97F9D33610851`; firma de código: no presente |
-| Instalación limpia temporal actual | NSIS salió con código 0 y extrajo 4.811 archivos, incluido el backend, medios y cuDNN. La app actual inició desde `win-unpacked` con salud interna/pública 200; el desinstalador temporal salió con código 0 y retiró la carpeta y su entrada de registro. Falta instalar en la PC definitiva |
+| Instalador Windows NSIS actual | `desktop/dist/OmniStage Setup 0.1.2.exe`, 928.918.487 bytes, SHA256 `6353D52D33A1DCE24CD3B69154A512708D73359B99861B1D125B01BE0694F672`; firma de código: no presente. Instalación por equipo con permiso de administrador; incluye `desktop/installer.nsh` para crear y borrar la regla de firewall TCP 8088 en redes Privadas. La creación de la regla al instalar todavía no se comprobó |
+| Guía de primeros pasos | 6 pruebas Playwright (escritorio y móvil) con puente de escritorio simulado: guía visible sin modelos, progreso de descarga, aviso de red Pública, acceso desde la barra lateral y aviso en la creación del operador |
+| Descarga de modelos en la app | 4 pruebas Node: instalación atómica, reanudación con `Range` tras un corte y rechazo por SHA256. Descarga real desde Hugging Face con las URL fijadas: ver fila siguiente |
+| Instalación limpia temporal actual | NSIS 0.1.1 salió con código 0 y extrajo 4.811 archivos, incluido el backend, medios y cuDNN. La app inició desde la instalación y respondió en sus servicios; el desinstalador salió con código 0 y retiró la carpeta y su entrada de registro. Falta instalar en la PC definitiva |
 
 ## Criterios aún sin medición
 

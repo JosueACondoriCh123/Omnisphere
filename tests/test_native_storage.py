@@ -102,6 +102,13 @@ def test_operator_archive_requires_login_and_public_origin_rejects_controls(tmp_
     assert second.status_code == 201
     assert local.post(f"/api/operator/sessions/{session_id}/end", headers={"x-csrf-token": csrf}).json()["status"] == "already_ended"
     assert db.current_session("1")["id"] == second.json()["id"]
+    tenth = local.post("/api/operator/sessions", headers={"x-csrf-token": csrf}, json={
+        "stage_id": "10", "title": "Décima sala", "source_type": "obs",
+        "permissions": {"capture": True, "transcribe": True, "translate": True,
+                        "publish": True, "retain": True, "evidence_reference": "consent-10"},
+    })
+    assert tenth.status_code == 201
+    assert db.current_session("10")["id"] == tenth.json()["id"]
     db.close()
 
 
@@ -113,4 +120,5 @@ def test_public_catalog_hides_unpublished_session(tmp_path, monkeypatch):
     item = next(row for row in public.get("/api/stages").json()["items"] if row["stage_id"] == "1")
     assert item["session"] != "Ponencia privada"
     assert item["active_session_id"] is None
+    assert any(row["stage_id"] == "10" for row in public.get("/api/stages").json()["items"])
     db.close()

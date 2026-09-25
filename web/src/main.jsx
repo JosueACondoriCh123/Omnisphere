@@ -9,7 +9,12 @@ import Clean from "./routes/Clean.jsx";
 import Overlay from "./routes/Overlay.jsx";
 import Home from "./routes/Home.jsx";
 import OutputStage from "./routes/OutputStage.jsx";
+import NotFound from "./routes/NotFound.jsx";
+import { isPublicDeployment } from "./lib/publicBackend.js";
 import "./index.css";
+import "./glass.css";
+import "./night.css";
+import "./landing.css";
 
 // OBS must start transparent on its very first painted frame, before effects run.
 if (globalThis.location?.pathname.startsWith("/overlay/")) {
@@ -32,17 +37,19 @@ createRoot(document.getElementById("root")).render(
         <Route path="/" element={<Home />} />
         <Route path="/app" element={<App />} />
         <Route path="/overlay/:stageId" element={<Overlay />} />
-        <Route path="/operator" element={<Admin />} />
-        <Route path="/operator/rooms" element={<Admin />} />
-        <Route path="/operator/broadcasts" element={<Admin />} />
-        <Route path="/operator/archive" element={<Admin />} />
-        <Route path="/operator/integrations" element={<Admin />} />
-        <Route path="/operator/system" element={<Admin />} />
-        <Route path="/operator/output/:stageId" element={<OutputStage />} />
-        <Route path="/admin" element={<Admin />} />
+        {!isPublicDeployment && <Route path="/operator" element={<Admin />} />}
+        {!isPublicDeployment && <Route path="/operator/rooms" element={<Admin />} />}
+        {!isPublicDeployment && <Route path="/operator/broadcasts" element={<Admin />} />}
+        {!isPublicDeployment && <Route path="/operator/archive" element={<Admin />} />}
+        {!isPublicDeployment && <Route path="/operator/integrations" element={<Admin />} />}
+        {!isPublicDeployment && <Route path="/operator/system" element={<Admin />} />}
+        {!isPublicDeployment && <Route path="/operator/setup" element={<Admin />} />}
+        {!isPublicDeployment && <Route path="/operator/output/:stageId" element={<OutputStage />} />}
+        {!isPublicDeployment && <Route path="/admin" element={<Admin />} />}
         <Route path="/captions/clean" element={<Clean />} />
-        <Route path="/archive/:stageId" element={<Archive />} />
-        <Route path="/operator/archive/:sessionId" element={<Archive />} />
+        {!isPublicDeployment && <Route path="/archive/:stageId" element={<Archive />} />}
+        {!isPublicDeployment && <Route path="/operator/archive/:sessionId" element={<Archive />} />}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

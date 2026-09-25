@@ -11,7 +11,7 @@ def recording(tmp_path, ident, talk, speaker, split, train=True):
         "id": ident, "talk_id": talk, "speaker_id": speaker, "split": split,
         "audio_path": str(audio), "source_lang": "es", "reference_origin": "human_verified",
         "reference_es": "Hola mundo", "reference_en": "Hello world",
-        "clauses": [{"hypothesis_es": "Ola mundo", "hypothesis_en": "Helo world",
+        "clauses": [{"hypothesis_es": "Ola mundo",
                      "reference_es": "Hola mundo", "reference_en": "Hello world"}],
         "glossary": ["mundo"], "permission_reference": f"permit-{ident}",
         "permissions": {"capture": True, "transcribe": True, "translate": True,
@@ -71,4 +71,19 @@ def test_training_split_rejects_shared_talk_or_missing_training_permission(tmp_p
     with pytest.raises(ValueError, match="training permission"):
         prepare({"recordings": [a, b]})
     b["permissions"]["train"] = True
-    assert len(prepare({"recordings": [a, b]})["train"]) == 2
+    assert len(prepare({"recordings": [a, b]})["train"]) == 1
+
+
+def test_training_uses_recording_source_language_only(tmp_path):
+    spanish = recording(tmp_path, "es", "talk-es", "speaker-es", "train")
+    english = recording(tmp_path, "en", "talk-en", "speaker-en", "holdout")
+    english["source_lang"] = "en"
+    english["clauses"][0].pop("hypothesis_es")
+    english["clauses"][0]["hypothesis_en"] = "Helo world"
+    data = prepare({"recordings": [spanish, english]})
+    assert len(data["train"]) == len(data["holdout"]) == 1
+    assert "this es conference caption" in data["train"][0]["messages"][0]["content"]
+    assert "this en conference caption" in data["holdout"][0]["messages"][0]["content"]
+    english["source_lang"] = "fr"
+    with pytest.raises(ValueError, match="source_lang"):
+        prepare({"recordings": [spanish, english]})

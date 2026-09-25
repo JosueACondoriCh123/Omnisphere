@@ -20,13 +20,12 @@ try {
   await page.getByLabel("Correo electrónico").fill("fixture@example.invalid");
   await page.getByLabel("Contraseña").fill("fixture-only-password");
   await page.getByRole("button", { name: "Crear cuenta" }).click();
-  await page.getByRole("heading", { name: "Control del evento." }).waitFor({ timeout: 30_000 });
+  await page.getByRole("heading", { name: "Resumen del evento" }).waitFor({ timeout: 30_000 });
   await desktop.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
   }, modelPack);
-  await page.getByRole("button", { name: "Importar paquete de modelos" }).click();
-  await page.locator('dt:has-text("Modelo gemma") + dd[data-on="1"]').waitFor({ timeout: 300_000 });
-  await page.locator('dt:has-text("Modelo asr") + dd[data-on="1"]').waitFor({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Importar desde una carpeta (sin internet)" }).click();
+  await page.getByText("faster-whisper y Gemma 4 E2B instalados y verificados.").waitFor({ timeout: 300_000 });
   const models = path.join(appData, "OmniStage", "models");
   if (!fs.existsSync(path.join(models, "gemma-4-e2b-q4.gguf")) ||
       !fs.existsSync(path.join(models, "faster-whisper", "model.bin"))) {

@@ -1,7 +1,7 @@
 fastapi>=0.116,<1
 faster-whisper==1.2.1
 ctranslate2==4.8.2
-google-genai>=1.0,<2
+google-genai==2.25.0
 httpx>=0.28,<1
 numpy>=2.0,<3
 onnxruntime>=1.22,<2

@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Reconciler } from "./reconciler.js";
 import { playMockCaptions } from "./mockCaptions.js";
+import { hasLiveBackend, publicSocketUrl } from "./publicBackend.js";
 
 export function captionsSocketUrl(stageId, lang) {
-  const proto = globalThis.location?.protocol === "https:" ? "wss:" : "ws:";
-  const host = globalThis.location?.host || "localhost";
-  return `${proto}//${host}/ws/stages/${encodeURIComponent(stageId)}/${encodeURIComponent(lang)}`;
+  return publicSocketUrl(`/ws/stages/${encodeURIComponent(stageId)}/${encodeURIComponent(lang)}`);
 }
 
 const BACKOFF_MS = [500, 1000, 2000, 5000];
@@ -134,7 +133,7 @@ export function useCaptions({
   enabled = true,
 } = {}) {
   const [segments, setSegments] = useState([]);
-  const [status, setStatus] = useState(mock ? "mock" : "connecting");
+  const [status, setStatus] = useState(mock ? "mock" : hasLiveBackend ? "connecting" : "unavailable");
   const [error, setError] = useState(null);
   const clientRef = useRef(null);
 
@@ -150,6 +149,8 @@ export function useCaptions({
       });
       return stop;
     }
+
+    if (!hasLiveBackend) return undefined;
 
     const client = createCaptionClient({
       stageId,

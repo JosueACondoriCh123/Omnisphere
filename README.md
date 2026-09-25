@@ -72,7 +72,15 @@ En producción, sustituir `<IP_DE_LA_PC>` por la dirección IP de la máquina de
 ### 1. Aplicación de Escritorio Nativa (Windows)
 OmniStage no requiere Docker ni Redis en producción. El instalador empaqueta la API, los workers asíncronos, MediaMTX, FFmpeg, llama.cpp y dependencias CUDA.
 
-- **Instalador NSIS:** `desktop/dist/OmniStage Setup 0.1.4.exe`
+**Descargar esta entrega:** en la carpeta compartida del proyecto, copiar a la PC de destino el archivo `desktop/release/OmniStage-0.1.4-sin-modelos.7z` (856 MiB). El `.7z` contiene el instalador de Windows, instrucciones y un verificador SHA256. Los binarios de `desktop/release/` no se suben a Git; si estás leyendo este README en el repositorio, necesitás obtener el archivo desde la carpeta de entrega o pedir el enlace de distribución al equipo.
+
+1. Extraer el `.7z` con 7-Zip u otro programa compatible.
+2. Abrir PowerShell en la carpeta extraída y ejecutar `powershell -ExecutionPolicy Bypass -File .\VERIFICAR.ps1`.
+3. Ejecutar `OmniStage Setup 0.1.4.exe` como administrador y crear la cuenta inicial al abrir la app.
+4. Entrar en **Modelos locales** para descargarlos o importar una carpeta de modelos aparte; el instalador comprimido no incluye los pesos de Gemma ni faster-whisper.
+5. Esperar el estado **Motor activo** de Gemma y usar **Ejecutar prueba** antes de conectar una sala.
+
+- **Instalador NSIS extraído:** `OmniStage Setup 0.1.4.exe`. También está en `desktop/dist/` en la máquina de compilación.
 - Requisitos: Windows 10/11 (64 bits), GPU NVIDIA (recomendado para ruta local, ej. RTX 4050 con ~1.7 GB VRAM libre), 10 GB de disco.
 - Al instalar, crea automáticamente la regla de firewall local para el puerto `8088` en redes Privadas.
 - **Modelos:** Se pueden descargar en el primer inicio desde la app (vía Hugging Face con verificación de SHA256) o importar offline mediante un paquete generado con `desktop/prepare_model_pack.py`.

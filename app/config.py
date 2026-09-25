@@ -36,6 +36,17 @@ class Settings(BaseSettings):
     capture_node_stale_seconds: int = Field(default=15, ge=5, le=300)
     worker_stale_seconds: int = Field(default=12, ge=5, le=300)
     allowed_origins: str = "*"
+    db_path: str = "data/omnistage.db"
+    retention_days: int = Field(default=30, ge=1, le=365)
+    transport_mode: str = "redis"  # native installer sets "local"
+    provider_mode: str = "auto"  # auto, cloud or local
+    gemini_api_key: str = ""
+    gemini_live_model: str = "gemini-3.5-transcribe-live"
+    gemini_translation_model: str = "gemini-3.5-flash-lite"
+    local_asr_model_path: str = ""
+    local_asr_device: str = "cuda"
+    gemma_api_url: str = "http://127.0.0.1:8092"
+    gemma_model: str = "gemma-4-E2B-it"
 
 
 @lru_cache

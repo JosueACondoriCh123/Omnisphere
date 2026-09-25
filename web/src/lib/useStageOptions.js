@@ -6,11 +6,14 @@ export function useStageOptions({ enabled = true } = {}) {
   useEffect(() => {
     if (!enabled) return undefined;
     let alive = true;
-    fetchStages().then((items) => {
+    const load = () => fetchStages().then((items) => {
       if (alive && items.length) setStages(items);
     });
+    load();
+    const timer = setInterval(load, 5000);
     return () => {
       alive = false;
+      clearInterval(timer);
     };
   }, [enabled]);
   return stages;

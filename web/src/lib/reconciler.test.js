@@ -48,6 +48,19 @@ test("reconciler out-of-order converges", () => {
   expect(view[0].text).toBe("COMMIT_OK");
 });
 
+test("session and clause identity prevent duplicate commits after reconnect and switch", () => {
+  const r = new Reconciler("1");
+  const first = cap({ session_id: "old", clause_id: "a", t0_ms: 100, t1_ms: 400,
+    state: "committed", text: "primero" });
+  expect(r.apply(first).accepted).toBe(true);
+  expect(r.apply({ ...first, provider: "local-gemma4", t0_ms: 120 }).reason).toBe("duplicate_commit");
+  r.setSession("new");
+  expect(r.view()).toHaveLength(0);
+  expect(r.apply(first).reason).toBe("wrong_session");
+  expect(r.apply({ ...first, session_id: "new", clause_id: "b", text: "nuevo" }).accepted).toBe(true);
+  expect(r.committed().map((item) => item.text)).toEqual(["nuevo"]);
+});
+
 test("committed segments stay immutable and still clear overlapping drafts", () => {
   const r = new Reconciler("1");
   r.apply(

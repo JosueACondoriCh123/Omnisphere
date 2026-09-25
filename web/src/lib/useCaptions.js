@@ -13,6 +13,7 @@ const BACKOFF_MS = [500, 1000, 2000, 5000];
 export function applyEnvelope(reconciler, message) {
   if (!message || typeof message !== "object") return false;
   if (message.type === "snapshot" && Array.isArray(message.captions)) {
+    reconciler.setSession(message.session_id);
     for (const caption of message.captions) {
       reconciler.apply({ ...caption, state: caption.state || "committed" });
     }
@@ -20,6 +21,10 @@ export function applyEnvelope(reconciler, message) {
   }
   if (message.type === "caption") {
     reconciler.apply(message);
+    return true;
+  }
+  if (message.type === "stream_started") {
+    reconciler.setSession(message.session_id);
     return true;
   }
   if (message.type === "stream_stopped") {

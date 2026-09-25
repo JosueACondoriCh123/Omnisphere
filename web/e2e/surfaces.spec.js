@@ -1,6 +1,22 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 
+test("event home lists three rooms and opens the chosen one", async ({ page }) => {
+  await page.route("**/api/stages", (route) => route.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({ items: [1, 2, 3].map((number) => ({
+      stage_id: String(number), name: `Escenario ${number}`,
+      session: `Charla ${number}`, stream_up: number === 2,
+      audio_up: number === 2, provider_ready: number === 2,
+    })) }),
+  }));
+  await page.goto("/");
+  await expect(page.locator(".stage-card")).toHaveCount(3);
+  await expect(page.getByText("EN VIVO", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: /Escenario 2/ }).click();
+  await expect(page).toHaveURL(/stage=2/);
+});
+
 test("app mock shows a draft and then the same commit", async ({ page }) => {
   await page.goto("/app?mock=1");
   const cue = page.locator(".cue");
@@ -53,6 +69,16 @@ test("archive downloads a timed srt", async ({ page }) => {
 });
 
 test("admin shows an alarm from metrics", async ({ page }) => {
+  await page.route("**/api/operator/me", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({ id: "operator-test", email: "op@example.com", csrf_token: "test" }) }),
+  );
+  await page.route("**/api/operator/sessions", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"items":[]}' }),
+  );
+  await page.route("**/api/operator/provider", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"mode":"auto","stages":{}}' }),
+  );
   await page.route("**/api/metrics/stages", (route) =>
     route.fulfill({
       status: 200,
@@ -72,8 +98,37 @@ test("admin shows an alarm from metrics", async ({ page }) => {
     }),
   );
   await page.goto("/admin");
-  await expect(page.getByText("sala-e2e")).toBeVisible();
+  await expect(page.getByText("sala-e2e", { exact: true })).toBeVisible();
   await expect(page.locator("[data-alarm='latency_over_1500ms']")).toBeVisible();
+});
+
+test("operator navigation separates rooms, broadcasts, archive and integrations", async ({ page }) => {
+  await page.route("**/api/operator/me", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({ id: "operator-test", email: "op@example.com", csrf_token: "test" }) }));
+  await page.route("**/api/operator/sessions", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"items":[]}' }));
+  await page.route("**/api/operator/provider", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"mode":"auto","stages":{}}' }));
+  await page.route("**/api/metrics/stages", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"items":[]}' }));
+  await page.goto("/operator");
+  await page.getByRole("link", { name: "Salas", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Nueva sesión" })).toBeVisible();
+  await page.getByRole("link", { name: "Transmisiones" }).click();
+  await expect(page.getByRole("heading", { name: "Destinos por sala" })).toBeVisible();
+  await page.getByRole("link", { name: "Archivo", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Sesiones y archivo" })).toBeVisible();
+  await page.getByRole("link", { name: "Integraciones" }).click();
+  await expect(page.getByRole("heading", { name: "Clave de nube" })).toBeVisible();
+});
+
+test("meeting output requires operator login", async ({ page }) => {
+  await page.route("**/api/operator/me", (route) =>
+    route.fulfill({ status: 401, contentType: "application/json", body: '{"detail":"unauthorized"}' }));
+  await page.goto("/operator/output/1?lang=es");
+  await expect(page.getByRole("heading", { name: "Salida protegida" })).toBeVisible();
+  await expect(page.locator("iframe")).toHaveCount(0);
 });
 
 test("app controls are reachable from the keyboard", async ({ page }) => {

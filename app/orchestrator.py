@@ -15,6 +15,7 @@ from app.config import Settings
 from app.context import ContextProvider
 from app.domain import StageContext, stage_id_from_path, utc_now
 from app.state import RuntimeState, WebSocketHub, WorkerState
+from app.storage import SessionStore
 
 logger = logging.getLogger("nerdearla.orchestrator")
 
@@ -42,6 +43,7 @@ class StageOrchestrator:
         self.hub = hub
         self.context_provider = context_provider
         self.workers: dict[str, WorkerProcess] = {}
+        self.store: SessionStore | None = None
         self._offline_since: dict[str, float] = {}
         self._stop = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
@@ -133,13 +135,17 @@ class StageOrchestrator:
             context.model_dump_json().encode("utf-8")
         ).decode("ascii")
         environment = os.environ.copy()
+        environment.pop("GEMINI_API_KEY", None)
         environment["NERDEARLA_STAGE_CONTEXT_B64"] = context_b64
+        if self.store is not None:
+            session = self.store.start_session(stage_id, context.session or context.name)
+            environment["OMNISTAGE_SESSION_ID"] = session["id"]
+            environment["OMNISTAGE_SESSION_STARTED_AT"] = session["started_at"]
         stream_url = f"{self.settings.mediamtx_rtsp_base}/live/stage-{stage_id}"
 
+        worker_binary = os.environ.get("OMNISTAGE_WORKER_BIN")
         process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "app.room_worker",
+            *([worker_binary] if worker_binary else [sys.executable, "-m", "app.room_worker"]),
             "--stage",
             stage_id,
             "--stream-url",
@@ -162,6 +168,7 @@ class StageOrchestrator:
         event = {
             "type": "stream_started",
             "stage_id": stage_id,
+            "session_id": session["id"] if self.store is not None else None,
             "emitted_at": utc_now().isoformat(),
             "context": context.model_dump(),
         }
@@ -189,6 +196,8 @@ class StageOrchestrator:
         for lang in worker.context.languages:
             await self.hub.publish(stage_id, lang, event)
         await self._forget_worker(stage_id)
+        if self.store is not None:
+            self.store.end_session(stage_id)
         self._offline_since.pop(stage_id, None)
         self.runtime.workers.pop(stage_id, None)
         logger.info("Stopped worker for stage %s (%s)", stage_id, reason)

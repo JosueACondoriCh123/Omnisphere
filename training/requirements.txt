@@ -1,0 +1,9 @@
+torch
+transformers>=5.10.1
+datasets
+accelerate
+bitsandbytes
+trl
+peft>=0.19.0
+protobuf
+sentencepiece

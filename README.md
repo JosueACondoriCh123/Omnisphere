@@ -1,3 +1,38 @@
+# OmniStage — piloto híbrido Windows
+
+OmniStage sirve al público salas, subtítulos en español o inglés, overlay OBS y
+proyector. La app de operación usa cuentas individuales, sesiones con referencia
+documental de permisos, archivo SQLite y exportaciones SRT/VTT/TXT. El runtime
+nativo no requiere Redis ni Docker Desktop. El puerto 8080 se liga a loopback
+para operar; el puerto 8088 es de lectura para la LAN de esta demo.
+
+La ruta de nube usa `gemini-3.5-transcribe-live` con PCM continuo y
+`gemini-3.5-flash-lite` para traducción. La ruta local usa faster-whisper para
+ASR y Gemma 4 E2B cuantizado para corrección/traducción. El modo automático
+cambia a local tras fallo de nube. Los subtítulos confirmados se persisten
+antes de emitirse y se conservan 30 días por defecto. Las claves se guardan en
+el almacén seguro de Windows de Electron.
+
+- [Instalador Windows y recursos requeridos](desktop/README.md)
+- [Guía de ejecución de la demo](docs/demo-final.md)
+- [Estado medido y criterios pendientes](docs/demo-status.md)
+- [Matriz de validación y manifiesto de grabaciones](docs/piloto.md)
+- [Preparación legal del ajuste LoRA](training/README.md)
+
+El sistema **todavía no está certificado para el piloto**: la demo LAN requiere
+un instalador probado, modelos cargados, una cuenta Gemini facturable y
+grabaciones con permisos y referencias humanas. El objetivo de tres salas con
+p95 visible ≤5 s sigue siendo un criterio de aceptación pendiente de medir en
+hardware real. El dominio público y Cloudflare Tunnel quedan para una fase
+posterior.
+
+- [Guía de cierre de la demo LAN](docs/demo-final.md)
+
+## Stack anterior para desarrollo (Compose)
+
+El contenido siguiente describe el stack anterior de desarrollo con Redis y
+Docker. Puede usarse para regresión, pero no representa el instalador nativo.
+
 # Nerdearla 2026 — Carril 3: plomería
 
 Plomería de audio en vivo por sala: ingesta RTMP, normalización FFmpeg, Silero

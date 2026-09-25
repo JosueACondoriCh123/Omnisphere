@@ -11,3 +11,14 @@ web/node_modules/
 coverage.xml
 htmlcov/
 *.log
+data/
+desktop/vendor/
+desktop/model-pack/
+desktop/runtime/
+desktop/dist/
+build/
+training/private/
+private/
+desktop/node_modules/
+desktop/out/
+desktop/release/

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
+import secrets
+import sqlite3
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -10,13 +14,15 @@ from fastapi import (
     FastAPI,
     Header,
     HTTPException,
+    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.context import ContextProvider
@@ -30,10 +36,13 @@ from app.domain import (
     utc_now,
 )
 from app.fanout import CaptionFanout
+from app.hybrid import HybridPipeline
 from app.metrics import PIPELINE_METRICS
 from app.orchestrator import StageOrchestrator
 from app.state import CaptureNodeState, RuntimeState, WebSocketHub, WorkerState
+from app.storage import SessionStore
 from app.transcriber_monitor import TranscriberMonitor
+from contracts.events import AudioSegment
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,19 +57,51 @@ context_provider = ContextProvider(settings)
 orchestrator = StageOrchestrator(settings, runtime, hub, context_provider)
 caption_fanout = CaptionFanout(settings, runtime, hub, context_provider)
 transcriber_monitor = TranscriberMonitor(settings, runtime)
+store: SessionStore | None = None
+hybrid_pipeline: HybridPipeline | None = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await caption_fanout.start()
-    await transcriber_monitor.start()
+    global store, hybrid_pipeline
+    store = SessionStore(settings.db_path, settings.retention_days)
+    store.purge_expired()
+    async def retention_loop() -> None:
+        while True:
+            await asyncio.sleep(3600)
+            if store is not None:
+                store.purge_expired()
+
+    retention_task = asyncio.create_task(retention_loop(), name="caption-retention")
+    orchestrator.store = store
+    caption_fanout.store = store
+    if settings.transport_mode == "local":
+        hybrid_pipeline = HybridPipeline(settings, runtime, context_provider, caption_fanout, store)
+        saved_mode = store.get_setting("provider_mode")
+        if saved_mode in {"auto", "cloud", "local"}:
+            hybrid_pipeline.mode = saved_mode
+        await hybrid_pipeline.start()
+        runtime.redis_connected = True  # local transport does not require an external broker
+    else:
+        await caption_fanout.start()
+        await transcriber_monitor.start()
     await orchestrator.start()
     try:
         yield
     finally:
+        retention_task.cancel()
+        await asyncio.gather(retention_task, return_exceptions=True)
         await orchestrator.close()
-        await transcriber_monitor.close()
-        await caption_fanout.close()
+        if hybrid_pipeline is not None:
+            await hybrid_pipeline.close()
+            hybrid_pipeline = None
+        else:
+            await transcriber_monitor.close()
+            await caption_fanout.close()
+        caption_fanout.store = None
+        orchestrator.store = None
+        store.close()
+        store = None
 
 
 app = FastAPI(
@@ -112,7 +153,8 @@ async def healthz() -> dict[str, str]:
 
 @app.get("/readyz")
 async def readyz() -> Response:
-    if runtime.mediamtx_connected and runtime.redis_connected and runtime.transcriber_up:
+    transport_ready = runtime.redis_connected if settings.transport_mode != "local" else hybrid_pipeline is not None
+    if runtime.mediamtx_connected and transport_ready and runtime.transcriber_up:
         return JSONResponse(
             {
                 "status": "ready",
@@ -127,6 +169,7 @@ async def readyz() -> Response:
             "mediamtx_error": runtime.mediamtx_error,
             "redis_error": runtime.redis_error,
             "transcriber_error": runtime.transcriber_error,
+            "provider": hybrid_pipeline.status() if hybrid_pipeline else None,
         },
         status_code=503,
     )
@@ -144,12 +187,15 @@ async def stages() -> dict[str, Any]:
     items = []
     for stage_id in sorted(stage_ids):
         context = catalog.get(stage_id) or await context_provider.get(stage_id)
+        active_session = store.current_session(stage_id) if store else None
         items.append(
             {
                 **(await stage_metrics(stage_id)),
                 "name": context.name,
-                "session": context.session,
+                "session": active_session["title"] if active_session else context.session,
+                "source_type": active_session["source_type"] if active_session else None,
                 "languages": context.languages,
+                "active_session_id": active_session["id"] if active_session else None,
             }
         )
     return {
@@ -212,6 +258,8 @@ async def stage_metrics(stage_id: str) -> dict[str, Any]:
         else None
     )
 
+    route_status = hybrid_pipeline.status()["stages"].get(stage_id, {}) if hybrid_pipeline else {}
+    transcriber_ready = route_status.get("ready", runtime.transcriber_up)
     alarms: list[dict[str, str]] = []
     if stream_up and not audio_up:
         alarms.append({"code": "audio_signal_down", "severity": "critical"})
@@ -222,10 +270,16 @@ async def stage_metrics(stage_id: str) -> dict[str, Any]:
         or (worker.error and "transcriber" in worker.error.lower())
     ):
         alarms.append({"code": "transcriber_socket_down", "severity": "critical"})
-    if stream_up and not runtime.transcriber_up and not any(
+    if stream_up and not transcriber_ready and not any(
         alarm["code"] == "transcriber_socket_down" for alarm in alarms
     ):
         alarms.append({"code": "transcriber_socket_down", "severity": "critical"})
+    if route_status.get("dropped_clauses", 0):
+        alarms.append({"code": "caption_overload", "severity": "critical"})
+
+    hop_samples = PIPELINE_METRICS.stage_snapshot(stage_id)
+    end_to_end = next((item for item in hop_samples if item["from_hop"] == "ingest"
+                          and item["to_hop"] == "fanout"), None)
 
     return {
         "stage_id": stage_id,
@@ -234,9 +288,18 @@ async def stage_metrics(stage_id: str) -> dict[str, Any]:
         "capture_node_up": capture_alive,
         "worker_up": worker_alive,
         "worker_state": worker.state if worker else "stopped",
-        "transcriber_up": runtime.transcriber_up,
+        "transcriber_up": transcriber_ready,
         "transcriber_error": runtime.transcriber_error,
         "transcriber_model": runtime.transcriber_model,
+        "provider": route_status.get("provider") if hybrid_pipeline else "gemini-segment",
+        "dropped_clauses": route_status.get("dropped_clauses", 0),
+        "final_clause_count": route_status.get("final_clause_count", 0),
+        "committed_clause_count": route_status.get("committed_clause_count", 0),
+        "provider_ready": transcriber_ready,
+        "cloud_audio_minutes": route_status.get("cloud_audio_minutes", 0),
+        "translation_input_tokens": route_status.get("translation_input_tokens", 0),
+        "translation_output_tokens": route_status.get("translation_output_tokens", 0),
+        "pipeline_p95_ms": end_to_end["p95_ms"] if end_to_end else None,
         "network_ms": network_ms,
         "inference_ms": inference_ms,
         "latency_ms": latency_ms,
@@ -247,7 +310,7 @@ async def stage_metrics(stage_id: str) -> dict[str, Any]:
         "audio_samples": worker.audio_samples if worker else 0,
         "websocket_clients": websocket_clients,
         "audio_age_seconds": round(audio_age, 2) if audio_age is not None else None,
-        "hop_latencies": PIPELINE_METRICS.stage_snapshot(stage_id),
+        "hop_latencies": hop_samples,
         "alarms": alarms,
     }
 
@@ -385,6 +448,10 @@ async def publish_event(stage_id: str, lang: str, event: StreamEvent) -> dict[st
     if event.type in {"vad_start", "vad_end"}:
         return {"delivered": 0}
     if event.type in {"draft", "commit"}:
+        if settings.transport_mode == "local":
+            current = store.current_session(stage_id) if store else None
+            if not current or not current["permissions"].get("publish"):
+                return {"delivered": 0}
         payload = {
             "type": "caption",
             "stage_id": stage_id,
@@ -397,14 +464,27 @@ async def publish_event(stage_id: str, lang: str, event: StreamEvent) -> dict[st
             "text": event.text or "",
             "original": str(event.payload.get("original", event.text or "")),
             "emitted_at_ms": int(event.emitted_at.timestamp() * 1000),
+            "audio_end_wall_ms": event.payload.get("audio_end_wall_ms"),
             "traces": list(event.payload.get("traces", [])),
         }
+        if store is not None:
+            session = store.current_session(stage_id) or store.start_session(stage_id)
+            payload["session_id"] = session["id"]
+            payload["provider"] = str(event.payload.get("provider") or "legacy")
+            if event.type == "commit":
+                payload, inserted = store.commit_caption(payload)
+                if not inserted:
+                    return {"delivered": 0}
         await runtime.record_committed(stage_id, lang, payload)
     else:
         payload = event.model_dump(mode="json")
         payload["stage_id"] = stage_id
         payload["lang"] = lang
-    delivered = await hub.publish(stage_id, lang, payload)
+    allowed = True
+    if store is not None:
+        current = store.current_session(stage_id)
+        allowed = bool(current and current["permissions"].get("publish"))
+    delivered = await hub.publish(stage_id, lang, payload) if allowed else 0
     return {"delivered": delivered}
 
 
@@ -419,11 +499,17 @@ async def stage_websocket(websocket: WebSocket, stage_id: str, lang: str) -> Non
         return
 
     async def snapshot_payload() -> dict[str, Any]:
+        session = store.current_session(stage_id) if store else None
         return {
             "type": "snapshot",
             "stage_id": stage_id,
             "lang": lang,
-            "captions": await runtime.caption_snapshot(stage_id, lang),
+            "session_id": session["id"] if session else None,
+            "captions": (
+                (store.captions(session["id"], lang) if session["permissions"].get("publish") else [])
+                if store is not None and session is not None
+                else await runtime.caption_snapshot(stage_id, lang)
+            ),
         }
 
     await hub.connect(stage_id, lang, websocket, snapshot_payload)
@@ -434,3 +520,338 @@ async def stage_websocket(websocket: WebSocket, stage_id: str, lang: str) -> Non
         pass
     finally:
         await hub.disconnect(stage_id, lang, websocket)
+
+
+def required_store() -> SessionStore:
+    if store is None:
+        raise HTTPException(503, "session storage is not ready")
+    return store
+
+
+class Credentials(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=256)
+
+
+def _csrf_for(token: str) -> str:
+    return hashlib.sha256((token + ":csrf").encode()).hexdigest()
+
+
+def require_operator(request: Request) -> dict[str, str]:
+    token = request.cookies.get("omnistage_operator", "")
+    operator = required_store().operator_for_token(token) if token else None
+    if operator is None:
+        raise HTTPException(401, "operator login required")
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        supplied = request.headers.get("x-csrf-token", "")
+        if not secrets.compare_digest(supplied, _csrf_for(token)):
+            raise HTTPException(403, "invalid CSRF token")
+    return operator
+
+
+@app.get("/api/operator/bootstrap-status")
+async def operator_bootstrap_status(request: Request) -> dict[str, bool]:
+    if request.client is None or request.client.host not in {"127.0.0.1", "::1", "testclient"}:
+        raise HTTPException(403, "setup is available only on this computer")
+    return {"needs_setup": not required_store().has_operators()}
+
+
+@app.post("/api/operator/bootstrap", status_code=201)
+async def operator_bootstrap(request: Request, credentials: Credentials) -> dict[str, str]:
+    if request.client is None or request.client.host not in {"127.0.0.1", "::1", "testclient"}:
+        raise HTTPException(403, "setup is available only on this computer")
+    db = required_store()
+    if db.has_operators():
+        raise HTTPException(409, "operator setup is complete")
+    try:
+        operator_id = db.create_operator(credentials.email, credentials.password)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    db.audit(operator_id, "bootstrap", operator_id)
+    return {"operator_id": operator_id}
+
+
+@app.post("/api/operator/login")
+async def operator_login(credentials: Credentials, response: Response) -> dict[str, str]:
+    db = required_store()
+    operator = db.authenticate(credentials.email, credentials.password)
+    if operator is None:
+        raise HTTPException(401, "invalid credentials")
+    token = db.issue_token(operator["id"])
+    response.set_cookie(
+        "omnistage_operator", token, httponly=True, samesite="strict", max_age=12 * 3600,
+        secure=False, path="/api/operator",
+    )
+    db.audit(operator["id"], "login", operator["id"])
+    return {**operator, "csrf_token": _csrf_for(token)}
+
+
+@app.post("/api/operator/logout")
+async def operator_logout(
+    request: Request, response: Response, operator: Annotated[dict[str, str], Depends(require_operator)]
+) -> dict[str, str]:
+    required_store().revoke_token(request.cookies["omnistage_operator"])
+    response.delete_cookie("omnistage_operator", path="/api/operator")
+    required_store().audit(operator["id"], "logout", operator["id"])
+    return {"status": "ok"}
+
+
+@app.get("/api/operator/me")
+async def operator_me(
+    request: Request, operator: Annotated[dict[str, str], Depends(require_operator)]
+) -> dict[str, str]:
+    return {**operator, "csrf_token": _csrf_for(request.cookies["omnistage_operator"])}
+
+
+@app.post("/api/operator/users", status_code=201)
+async def create_operator(
+    credentials: Credentials, operator: Annotated[dict[str, str], Depends(require_operator)]
+) -> dict[str, str]:
+    try:
+        operator_id = required_store().create_operator(credentials.email, credentials.password)
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    required_store().audit(operator["id"], "create_operator", operator_id)
+    return {"operator_id": operator_id}
+
+
+@app.get("/api/operator/sessions")
+async def operator_sessions(
+    operator: Annotated[dict[str, str], Depends(require_operator)], stage_id: str | None = None
+) -> dict[str, Any]:
+    if stage_id is not None:
+        validate_partition(stage_id)
+    return {"items": required_store().list_sessions(stage_id)}
+
+
+@app.get("/api/operator/sessions/{session_id}/captions")
+async def operator_captions(
+    session_id: str, lang: str, operator: Annotated[dict[str, str], Depends(require_operator)]
+) -> dict[str, Any]:
+    validate_partition("1", lang)
+    session = required_store().get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    return {"session": session, "captions": required_store().captions(session_id, lang)}
+
+
+def _subtitle_time(ms: int, separator: str) -> str:
+    ms = max(0, ms)
+    hour, rem = divmod(ms, 3_600_000)
+    minute, rem = divmod(rem, 60_000)
+    second, milli = divmod(rem, 1000)
+    return f"{hour:02}:{minute:02}:{second:02}{separator}{milli:03}"
+
+
+@app.get("/api/operator/sessions/{session_id}/export")
+async def operator_export(
+    session_id: str,
+    lang: str,
+    format: str,
+    operator: Annotated[dict[str, str], Depends(require_operator)],
+) -> Response:
+    validate_partition("1", lang)
+    if format not in {"srt", "vtt", "txt"}:
+        raise HTTPException(422, "format must be srt, vtt or txt")
+    session = required_store().get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    captions = required_store().captions(session_id, lang)
+    if format == "txt":
+        body = "\n".join(item["text"] for item in captions if item["text"])
+    else:
+        sep = "," if format == "srt" else "."
+        lines = [
+            f"{index}\n{_subtitle_time(item['t0_ms'], sep)} --> {_subtitle_time(item['t1_ms'], sep)}\n{item['text']}"
+            for index, item in enumerate(captions, 1) if item["text"]
+        ]
+        body = ("WEBVTT\n\n" if format == "vtt" else "") + "\n\n".join(lines) + "\n"
+    required_store().audit(operator["id"], "export", session_id)
+    return Response(
+        body,
+        media_type={"srt": "application/x-subrip", "vtt": "text/vtt", "txt": "text/plain"}[format],
+        headers={"Content-Disposition": f'attachment; filename="omnistage_{session_id[:8]}_{lang}.{format}"'},
+    )
+
+
+class PermissionUpdate(BaseModel):
+    capture: bool = False
+    transcribe: bool = False
+    translate: bool = False
+    cloud: bool = False
+    publish: bool = False
+    retain: bool = False
+    train: bool = False
+    evidence_reference: str = Field(default="", max_length=500)
+
+
+class SessionCreate(BaseModel):
+    stage_id: str
+    title: str = Field(min_length=1, max_length=200)
+    source_type: str = Field(default="obs", pattern="^(obs|file|microphone)$")
+    permissions: PermissionUpdate
+
+
+@app.post("/api/operator/sessions", status_code=201)
+async def create_session(
+    value: SessionCreate,
+    operator: Annotated[dict[str, str], Depends(require_operator)],
+) -> dict[str, Any]:
+    validate_partition(value.stage_id)
+    if settings.transport_mode == "local" and value.stage_id not in {"1", "2", "3"}:
+        raise HTTPException(422, "native pilot supports stages 1, 2 and 3")
+    if not all((value.permissions.capture, value.permissions.transcribe,
+                value.permissions.translate, value.permissions.publish,
+                value.permissions.retain, value.permissions.evidence_reference.strip())):
+        raise HTTPException(422, "capture, transcription, translation, publication, retention and evidence are required")
+    active = required_store().current_session(value.stage_id)
+    if active and active["permissions"]:
+        raise HTTPException(409, "end the current session before preparing another")
+    session = required_store().start_session(
+        value.stage_id, value.title, value.source_type, value.permissions.model_dump()
+    )
+    required_store().audit(operator["id"], "start_session", session["id"])
+    return session
+
+
+@app.post("/api/operator/sessions/{session_id}/end")
+async def end_session(
+    session_id: str,
+    operator: Annotated[dict[str, str], Depends(require_operator)],
+) -> dict[str, str]:
+    session = required_store().get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    if session["ended_at"] is not None:
+        return {"status": "already_ended"}
+    active = required_store().current_session(session["stage_id"])
+    if active is None or active["id"] != session_id:
+        raise HTTPException(409, "session is not active")
+    required_store().end_session(session["stage_id"])
+    if session["stage_id"] in orchestrator.workers:
+        await orchestrator.stop_worker(session["stage_id"], "operator_end")
+    required_store().audit(operator["id"], "end_session", session_id)
+    return {"status": "ok"}
+
+
+@app.put("/api/operator/sessions/{session_id}/permissions")
+async def operator_permissions(
+    session_id: str,
+    permissions: PermissionUpdate,
+    operator: Annotated[dict[str, str], Depends(require_operator)],
+) -> dict[str, str]:
+    if any((permissions.capture, permissions.transcribe, permissions.translate,
+            permissions.cloud, permissions.publish, permissions.retain,
+            permissions.train)) and not permissions.evidence_reference.strip():
+        raise HTTPException(422, "permission evidence reference is required")
+    if not required_store().set_permissions(session_id, permissions.model_dump()):
+        raise HTTPException(404, "session not found")
+    required_store().audit(operator["id"], "permissions", session_id)
+    if hybrid_pipeline is not None:
+        session = required_store().get_session(session_id)
+        if session and session["stage_id"] in hybrid_pipeline.routes:
+            await hybrid_pipeline._choose_provider(hybrid_pipeline.routes[session["stage_id"]])
+    return {"status": "ok"}
+
+
+@app.post(
+    "/internal/audio/stages/{stage_id}/segments",
+    dependencies=[Depends(require_internal_token)],
+)
+async def native_audio_segment(stage_id: str, request: Request) -> dict[str, str]:
+    validate_partition(stage_id)
+    if hybrid_pipeline is None:
+        raise HTTPException(503, "native audio transport is disabled")
+    raw = await request.body()
+    if len(raw) > 1_500_000:
+        raise HTTPException(413, "audio segment exceeds limit")
+    try:
+        segment = AudioSegment.from_json(raw)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(422, "invalid audio segment") from exc
+    if segment.stage_id != stage_id:
+        raise HTTPException(409, "stage mismatch")
+    await hybrid_pipeline.feed_segment(segment)
+    return {"status": "accepted"}
+
+
+@app.post(
+    "/internal/audio/stages/{stage_id}/cloud-failed",
+    dependencies=[Depends(require_internal_token)],
+)
+async def native_cloud_failed(stage_id: str) -> dict[str, str]:
+    validate_partition(stage_id)
+    if hybrid_pipeline is None:
+        raise HTTPException(503, "native audio transport is disabled")
+    route = await hybrid_pipeline.route(stage_id)
+    hybrid_pipeline._mark_cloud_failed(route, "capture frame backlog")
+    await hybrid_pipeline._choose_provider(route)
+    return {"provider": route.provider}
+
+
+@app.websocket("/internal/audio/stages/{stage_id}/frames")
+async def native_audio_frames(websocket: WebSocket, stage_id: str) -> None:
+    token = websocket.headers.get("x-internal-token", "")
+    if token != settings.internal_token or not STAGE_ID_PATTERN.fullmatch(stage_id) or hybrid_pipeline is None:
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    try:
+        while True:
+            payload = await websocket.receive_bytes()
+            if len(payload) < 10 or len(payload) > 32_008:
+                await websocket.close(code=1009)
+                return
+            t1_ms = int.from_bytes(payload[:8], "big")
+            await hybrid_pipeline.feed_frame(stage_id, t1_ms, payload[8:])
+    except WebSocketDisconnect:
+        pass
+
+
+class ProviderMode(BaseModel):
+    mode: str
+
+
+@app.get("/api/operator/provider")
+async def operator_provider(
+    operator: Annotated[dict[str, str], Depends(require_operator)]
+) -> dict[str, Any]:
+    if hybrid_pipeline is None:
+        return {"mode": "legacy", "stages": {}}
+    return hybrid_pipeline.status()
+
+
+@app.put("/api/operator/provider")
+async def update_provider(
+    value: ProviderMode,
+    operator: Annotated[dict[str, str], Depends(require_operator)],
+) -> dict[str, Any]:
+    if hybrid_pipeline is None:
+        raise HTTPException(503, "native provider routing is disabled")
+    try:
+        await hybrid_pipeline.set_mode(value.mode)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    required_store().audit(operator["id"], "provider_mode", value.mode)
+    required_store().set_setting("provider_mode", value.mode)
+    return hybrid_pipeline.status()
+
+
+@app.get("/{asset_path:path}")
+async def operator_asset(asset_path: str) -> Response:
+    """Electron's loopback origin serves the operator UI from the same web build."""
+    import os
+    from pathlib import Path
+
+    if asset_path.startswith(("api/", "internal/", "ws/")):
+        raise HTTPException(404, "not found")
+    root = Path(os.environ.get("OMNISTAGE_WEB_DIST", "web/dist")).resolve()
+    requested = (root / asset_path).resolve()
+    if not requested.is_relative_to(root):
+        raise HTTPException(404, "not found")
+    if requested.is_file():
+        return FileResponse(requested)
+    index = root / "index.html"
+    if not index.is_file():
+        raise HTTPException(503, "web build is not installed")
+    return FileResponse(index)

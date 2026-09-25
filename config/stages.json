@@ -12,5 +12,12 @@
     "languages": ["es", "en"],
     "glossary": ["Nerdearla"],
     "speakers": []
+  },
+  "3": {
+    "name": "Stage 3",
+    "session": "Tercera sala",
+    "languages": ["es", "en"],
+    "glossary": ["Nerdearla"],
+    "speakers": []
   }
 }

@@ -11,6 +11,7 @@ from app.config import Settings
 from app.context import ContextProvider
 from app.metrics import PIPELINE_METRICS
 from app.state import RuntimeState, WebSocketHub
+from app.storage import SessionStore
 from contracts.events import CaptionEvent, TraceStamp
 
 logger = logging.getLogger("nerdearla.fanout")
@@ -32,6 +33,7 @@ class CaptionFanout:
         self.context_provider = context_provider
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        self.store: SessionStore | None = None
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name="caption-fanout")
@@ -78,6 +80,10 @@ class CaptionFanout:
 
     async def dispatch(self, raw: str | bytes) -> int:
         event = CaptionEvent.from_json(raw)
+        if event.session_id and self.store is not None:
+            active = self.store.current_session(event.stage_id)
+            if active is None or active["id"] != event.session_id:
+                return 0
         fanout_trace = asdict(TraceStamp.make("fanout", event.stage_id, event.revision))
         traces = [*event.traces, fanout_trace]
         PIPELINE_METRICS.observe(event.stage_id, traces)
@@ -113,7 +119,10 @@ class CaptionFanout:
                 )
                 texts[lang] = event.text.original
 
-        delivered = 0
+        session = self.store.current_session(event.stage_id) if self.store is not None else None
+        if self.store is not None and session is None:
+            session = self.store.start_session(event.stage_id)
+        payloads: list[dict[str, Any]] = []
         for lang, text in texts.items():
             payload: dict[str, Any] = {
                 "type": "caption",
@@ -129,6 +138,25 @@ class CaptionFanout:
                 "emitted_at_ms": event.emitted_at_ms,
                 "traces": traces,
             }
+            if event.audio_end_wall_ms is not None:
+                payload["audio_end_wall_ms"] = event.audio_end_wall_ms
+            if self.store is not None:
+                assert session is not None
+                payload["session_id"] = event.session_id or session["id"]
+                payload["provider"] = getattr(event, "provider", "legacy")
+            payloads.append(payload)
+        saved = (
+            self.store.commit_captions(payloads)
+            if self.store is not None and event.state == "committed"
+            else [(payload, True) for payload in payloads]
+        )
+        delivered = 0
+        for payload, inserted in saved:
+            if not inserted:
+                continue
+            lang = str(payload["lang"])
             await self.runtime.record_committed(event.stage_id, lang, payload)
-            delivered += await self.hub.publish(event.stage_id, lang, payload)
+            assert self.store is None or session is not None
+            if self.store is None or session["permissions"].get("publish"):
+                delivered += await self.hub.publish(event.stage_id, lang, payload)
         return delivered

@@ -30,7 +30,7 @@ VAD_FRAME_BYTES = VAD_FRAME_SAMPLES * PCM_SAMPLE_BYTES
 def build_ffmpeg_command(stream_url: str) -> list[str]:
     """Build the invariant live normalization chain required by Carril 3."""
     return [
-        "ffmpeg",
+        os.environ.get("FFMPEG_BIN", "ffmpeg"),
         "-hide_banner",
         "-loglevel",
         "warning",
@@ -87,6 +87,16 @@ class RoomWorker:
         self.redis_publish_ms: float | None = None
         self.segments_published = 0
         self.ffmpeg_launches = 0
+        self.frame_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=240)
+        self.frame_sender_task: asyncio.Task[None] | None = None
+        self.live_pcm = bytearray()
+        started_at = os.environ.get("OMNISTAGE_SESSION_STARTED_AT", "")
+        try:
+            self.timeline_offset_ms = max(
+                0, round((datetime.now(UTC) - datetime.fromisoformat(started_at)).total_seconds() * 1000)
+            ) if started_at else 0
+        except ValueError:
+            self.timeline_offset_ms = 0
 
     def request_stop(self) -> None:
         self.stop_event.set()
@@ -95,6 +105,8 @@ class RoomWorker:
 
     async def run(self) -> int:
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        if self.settings.transport_mode == "local":
+            self.frame_sender_task = asyncio.create_task(self._send_frames(), name="live-frame-sender")
         try:
             return await self._audio_loop()
         except asyncio.CancelledError:
@@ -109,6 +121,9 @@ class RoomWorker:
             self.stop_event.set()
             heartbeat_task.cancel()
             await asyncio.gather(heartbeat_task, return_exceptions=True)
+            if self.frame_sender_task:
+                self.frame_sender_task.cancel()
+                await asyncio.gather(self.frame_sender_task, return_exceptions=True)
             if self.ffmpeg and self.ffmpeg.returncode is None:
                 self.ffmpeg.terminate()
                 try:
@@ -197,6 +212,23 @@ class RoomWorker:
                 frame_bytes = bytes(pending[:VAD_FRAME_BYTES])
                 del pending[:VAD_FRAME_BYTES]
                 self.stream_samples += VAD_FRAME_SAMPLES
+                if self.settings.transport_mode == "local":
+                    self.live_pcm.extend(frame_bytes)
+                    while len(self.live_pcm) >= 3_200:
+                        live_chunk = bytes(self.live_pcm[:3_200])
+                        del self.live_pcm[:3_200]
+                        frame_time_ms = self.timeline_offset_ms + round(
+                            (self.stream_samples - len(self.live_pcm) // PCM_SAMPLE_BYTES) / PCM_SAMPLE_RATE * 1000
+                        )
+                        frame = frame_time_ms.to_bytes(8, "big") + live_chunk
+                        try:
+                            self.frame_queue.put_nowait(frame)
+                        except asyncio.QueueFull:
+                            self.state = "degraded"
+                            self.last_error = "cloud frame backlog exceeded 24 seconds"
+                            while not self.frame_queue.empty():
+                                self.frame_queue.get_nowait()
+                            await self._notify_cloud_failure()
                 self.audio_seen_at = datetime.now(UTC).isoformat()
                 media_ms = (
                     (self.stream_samples - session_start_sample) / PCM_SAMPLE_RATE * 1000
@@ -242,8 +274,8 @@ class RoomWorker:
         import numpy as np
 
         audio = segment.audio
-        t0_ms = segment.t0_ms
-        t1_ms = segment.t1_ms
+        t0_ms = segment.t0_ms + self.timeline_offset_ms
+        t1_ms = segment.t1_ms + self.timeline_offset_ms
         is_clause_end = segment.is_clause_end
         reason = segment.reason
         duration_ms = round(len(audio) / PCM_SAMPLE_BYTES / PCM_SAMPLE_RATE * 1000)
@@ -260,6 +292,12 @@ class RoomWorker:
             await self._publish_source_event("vad_end", is_clause_end, payload)
 
         self.sequence += 1
+        current_media_ms = self.timeline_offset_ms + round(
+            self.stream_samples / PCM_SAMPLE_RATE * 1000
+        )
+        # Backdate delayed PCM consumption so a slow VAD loop cannot make the
+        # measured audio-to-paint latency look artificially short.
+        audio_end_wall_ms = now_ms() - max(0, current_media_ms - t1_ms) - round(self.vad_backlog_ms)
         segment = AudioSegment.from_pcm(
             stage_id=self.stage_id,
             seq=self.sequence,
@@ -268,6 +306,7 @@ class RoomWorker:
             pcm=audio,
             is_clause_end=is_clause_end,
             rms_dbfs=round(rms_dbfs, 2),
+            audio_end_wall_ms=audio_end_wall_ms,
         )
         segment = replace(
             segment,
@@ -285,7 +324,7 @@ class RoomWorker:
         )
         await self._publish_audio_segment(segment)
 
-        if not self.settings.transcriber_url:
+        if self.settings.transport_mode == "local" or not self.settings.transcriber_url:
             return
 
         started = time.perf_counter()
@@ -317,6 +356,17 @@ class RoomWorker:
             )
 
     async def _publish_audio_segment(self, segment: AudioSegment) -> None:
+        if self.settings.transport_mode == "local":
+            started = time.perf_counter()
+            response = await self.client.post(
+                f"{self.settings.internal_api_base}/internal/audio/stages/{self.stage_id}/segments",
+                content=segment.to_json(),
+                headers={"x-internal-token": self.settings.internal_token, "content-type": "application/json"},
+            )
+            response.raise_for_status()
+            self.redis_publish_ms = round((time.perf_counter() - started) * 1000, 2)
+            self.segments_published += 1
+            return
         if self.redis is None:
             import redis.asyncio as redis
 
@@ -325,6 +375,35 @@ class RoomWorker:
         await self.redis.publish(f"stage:{self.stage_id}:audio", segment.to_json())
         self.redis_publish_ms = round((time.perf_counter() - started) * 1000, 2)
         self.segments_published += 1
+
+    async def _send_frames(self) -> None:
+        import websockets
+
+        url = self.settings.internal_api_base.replace("http://", "ws://").replace("https://", "wss://")
+        url += f"/internal/audio/stages/{self.stage_id}/frames"
+        while not self.stop_event.is_set():
+            try:
+                async with websockets.connect(
+                    url, additional_headers={"x-internal-token": self.settings.internal_token},
+                    max_size=32_008,
+                ) as socket:
+                    while not self.stop_event.is_set():
+                        frame = await self.frame_queue.get()
+                        await socket.send(frame)
+            except asyncio.CancelledError:
+                raise
+            except (OSError, RuntimeError, websockets.WebSocketException) as exc:
+                self.last_error = f"frame socket: {exc}"[:300]
+                await asyncio.sleep(0.5)
+
+    async def _notify_cloud_failure(self) -> None:
+        try:
+            await self.client.post(
+                f"{self.settings.internal_api_base}/internal/audio/stages/{self.stage_id}/cloud-failed",
+                headers={"x-internal-token": self.settings.internal_token},
+            )
+        except httpx.HTTPError:
+            pass
 
     async def _publish_source_event(
         self, event_type: str, is_clause_end: bool, payload: dict[str, Any]
@@ -397,7 +476,10 @@ async def async_main() -> int:
     worker = RoomWorker(args.stage, args.stream_url)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, worker.request_stop)
+        try:
+            loop.add_signal_handler(sig, worker.request_stop)
+        except NotImplementedError:
+            signal.signal(sig, lambda *_: worker.request_stop())
     return await worker.run()
 
 

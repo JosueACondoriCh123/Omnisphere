@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { CaptionLane } from "../components/CaptionLane.jsx";
 import { statusLabel } from "../lib/status.js";
 import { useOnline } from "../lib/online.js";
@@ -9,16 +9,16 @@ import { useStageOptions } from "../lib/useStageOptions.js";
 
 const SIZES = ["S", "M", "L", "XL"];
 
-function useCommitAnnouncements(segments) {
+function useCommitAnnouncements(segments, stageId, lang) {
   const seen = useRef(new Set());
   const [text, setText] = useState("");
   const signature = useMemo(
     () =>
       segments
         .filter((segment) => segment.state === "committed")
-        .map((segment) => `${segment.uid}:${segment.text}`)
+        .map((segment) => `${stageId}:${lang}:${segment.session_id || ""}:${segment.uid}:${segment.text}`)
         .join("|"),
-    [segments],
+    [segments, stageId, lang],
   );
 
   useEffect(() => {
@@ -26,12 +26,12 @@ function useCommitAnnouncements(segments) {
       (segment) =>
         segment.state === "committed" &&
         segment.uid != null &&
-        !seen.current.has(segment.uid),
+        !seen.current.has(`${stageId}:${lang}:${segment.session_id || ""}:${segment.uid}`),
     );
     if (!fresh.length) return;
-    for (const segment of fresh) seen.current.add(segment.uid);
+    for (const segment of fresh) seen.current.add(`${stageId}:${lang}:${segment.session_id || ""}:${segment.uid}`);
     setText(fresh.map((segment) => segment.text).filter(Boolean).join(" "));
-  }, [segments, signature]);
+  }, [segments, signature, stageId, lang]);
 
   return text;
 }
@@ -65,7 +65,19 @@ export default function App() {
     () => segments.filter((s) => s.state === "draft" || s.state === "committed"),
     [segments],
   );
-  const announcement = useCommitAnnouncements(segments);
+  const announcement = useCommitAnnouncements(segments, stageId, lang);
+  const reachableOnLan = !mock && status === "open";
+  const connectionAvailable = online || reachableOnLan;
+  const currentStage = stages.find((stage) => String(stage.stage_id) === String(stageId));
+  const displayStatus = !connectionAvailable ? "offline"
+    : !mock && status === "open" && currentStage?.active_session_id && !currentStage.audio_up
+      ? "no-signal"
+      : !mock && status === "open" && currentStage?.audio_up && currentStage.provider_ready === false
+        ? "provider-error" : status;
+  const displayLabel = displayStatus === "no-signal" ? "Sin señal de audio"
+    : displayStatus === "provider-error" ? "Proveedor no disponible"
+      : displayStatus === "offline" ? "Sin conexión; los subtítulos en vivo están pausados"
+        : statusLabel(displayStatus);
 
   return (
     <main
@@ -125,16 +137,15 @@ export default function App() {
           />
           Alto contraste
         </label>
-        <p className="status" data-status={online ? status : "offline"} role="status">
+        <p className="status" data-status={displayStatus} role="status">
           <span aria-hidden="true" />
-          {online
-            ? statusLabel(status)
-            : "Sin conexión; los subtítulos en vivo están pausados"}
+          {displayLabel}
         </p>
+        <Link className="back-link" to="/">Todas las salas ↗</Link>
       </header>
       <section className="prompter" aria-label="Subtítulos en vivo">
         <p className="eyebrow" aria-hidden="true">
-          Sala {stageId} · {lang.toUpperCase()}
+          {stageOptions.find((stage) => String(stage.stage_id) === String(stageId))?.name || `Sala ${stageId}`} · {lang.toUpperCase()}
         </p>
         <CaptionLane segments={live} />
       </section>

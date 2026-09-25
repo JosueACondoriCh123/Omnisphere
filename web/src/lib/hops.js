@@ -57,5 +57,6 @@ export function hopsFromApi(hopLatencies = []) {
 export const ALARM_LABELS = {
   audio_signal_down: "sin audio",
   latency_over_1500ms: "latencia > 1.5 s",
-  transcriber_socket_down: "Gemini/transcriber socket down",
+  transcriber_socket_down: "motor de subtítulos no disponible",
+  caption_overload: "cola de subtítulos saturada",
 };

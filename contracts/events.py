@@ -41,6 +41,8 @@ class AudioSegment:
     is_clause_end: bool
     rms_dbfs: float
     traces: list[dict[str, Any]] = field(default_factory=list)
+    audio_end_wall_ms: int | None = None
+    session_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.t1_ms < self.t0_ms:
@@ -59,6 +61,8 @@ class AudioSegment:
         pcm: bytes,
         is_clause_end: bool,
         rms_dbfs: float,
+        audio_end_wall_ms: int | None = None,
+        session_id: str | None = None,
     ) -> AudioSegment:
         return cls(
             stage_id=stage_id,
@@ -68,6 +72,8 @@ class AudioSegment:
             pcm_b64=base64.b64encode(pcm).decode("ascii"),
             is_clause_end=is_clause_end,
             rms_dbfs=rms_dbfs,
+            audio_end_wall_ms=audio_end_wall_ms,
+            session_id=session_id,
         )
 
     def to_json(self) -> str:
@@ -99,6 +105,9 @@ class CaptionEvent:
     text: CaptionText
     emitted_at_ms: int
     traces: list[dict[str, Any]] = field(default_factory=list)
+    provider: str = "legacy"
+    audio_end_wall_ms: int | None = None
+    session_id: str | None = None
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -108,4 +117,3 @@ class CaptionEvent:
         data = json.loads(raw)
         data["text"] = CaptionText(**data["text"])
         return cls(**data)
-

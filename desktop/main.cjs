@@ -3,6 +3,7 @@
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const os = require('node:os');
 const { spawn, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
@@ -13,6 +14,7 @@ const { createCloudKeyStore } = require('./agent-a-gemini/cloud-key.cjs');
 const { createOutputManager } = require('./agent-b-outputs/manager.cjs');
 const { validStage } = require('./stages.cjs');
 const { createModelDownloader } = require('./model-download.cjs');
+const { runLocalSample } = require('./local-model.cjs');
 const execFileAsync = promisify(execFile);
 
 const SERVICES = ['mediamtx', 'gemma', 'backend'];
@@ -29,6 +31,7 @@ let quitting = false;
 let shutdownInProgress = false;
 let shutdownComplete = false;
 let window;
+let startupPromise;
 const configuredUserData = process.env.OMNISTAGE_USER_DATA;
 if (configuredUserData && !path.isAbsolute(configuredUserData)) {
   throw new Error('OMNISTAGE_USER_DATA debe ser una ruta absoluta');
@@ -304,6 +307,14 @@ function installIpc() {
     return result;
   });
   privileged('omni:cancel-model-download', () => modelDownloader.cancel());
+  privileged('omni:start-local-models', () => {
+    const model = path.join(app.getPath('userData'), 'models', 'gemma-4-e2b-q4.gguf');
+    if (!fs.existsSync(model)) throw new Error('Instalá Gemma antes de iniciar el motor local.');
+    if (processes.has('gemma')) restartService('gemma');
+    else startService('gemma');
+    return { starting: true };
+  });
+  privileged('omni:test-local-model', (_event, input, target) => runLocalSample(input, target));
   privileged('omni:open-network-settings', () => shell.openExternal('ms-settings:network-status'));
   privileged('omni:import-models', async () => {
     const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'],
@@ -347,6 +358,37 @@ function installIpc() {
     stage = validStage(stage);
     sources.get(stage)?.kill(); sources.delete(stage); return true;
   });
+  ipcMain.handle('omni:retry-startup', async (event) => {
+    if (!window || event.sender.id !== window.webContents.id ||
+        event.senderFrame?.url !== pathToFileURL(path.join(__dirname, 'splash.html')).href) {
+      throw new Error('Pantalla de inicio no autorizada');
+    }
+    for (const name of SERVICES) startService(name);
+    return openOperator();
+  });
+}
+async function openOperator() {
+  if (startupPromise) return startupPromise;
+  startupPromise = (async () => {
+    window.webContents.send('omni:startup-state', { phase: 'starting' });
+    const started = Date.now();
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (window.isDestroyed()) return false;
+      if (await healthy('http://127.0.0.1:8080/healthz')) {
+        window.webContents.send('omni:startup-state', { phase: 'ready' });
+        await new Promise((resolve) => setTimeout(resolve, Math.max(0, 1200 - (Date.now() - started))));
+        await window.loadURL('http://127.0.0.1:8080/admin');
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    window.webContents.send('omni:startup-state', { phase: 'error' });
+    return false;
+  })().catch(() => {
+    if (window && !window.isDestroyed()) window.webContents.send('omni:startup-state', { phase: 'error' });
+    return false;
+  }).finally(() => { startupPromise = null; });
+  return startupPromise;
 }
 app.whenReady().then(async () => {
   if (!app.requestSingleInstanceLock()) { app.quit(); return; }
@@ -361,11 +403,8 @@ app.whenReady().then(async () => {
   window.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('http://127.0.0.1:8080/')) event.preventDefault();
   });
-  for (let attempt = 0; attempt < 60; attempt++) {
-    try { const response = await fetch('http://127.0.0.1:8080/healthz'); if (response.ok) break; } catch { /* starting */ }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  await window.loadURL('http://127.0.0.1:8080/admin');
+  await window.loadFile(path.join(__dirname, 'splash.html'));
+  await openOperator();
 });
 app.on('before-quit', (event) => {
   if (shutdownComplete) return;

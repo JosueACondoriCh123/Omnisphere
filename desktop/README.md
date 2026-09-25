@@ -12,8 +12,16 @@ escuchan solo en loopback.
 .\.venv\Scripts\python.exe desktop\prepare_vendor.py
 .\.venv\Scripts\python.exe desktop\prepare_model_pack.py
 .\desktop\build.ps1
+.\desktop\package-app-only.ps1
 .\desktop\package-offline.ps1
 ```
+
+`package-app-only.ps1` crea `desktop/release/OmniStage-0.1.4-sin-modelos.7z`:
+contiene el instalador, instrucciones y SHA256, pero no los pesos de Gemma ni
+faster-whisper. Tras instalar, abrir **Modelos locales** para descargarlos o
+importarlos desde otra carpeta, iniciar Gemma y ejecutar una prueba breve.
+La ventana de inicio muestra el estado del arranque y permite reintentar si el
+backend no responde.
 
 `package-offline.ps1` reúne el instalador y el paquete de modelos ya verificado
 en `desktop/release/OmniStage-0.1.3-offline/`. Copiar esa carpeta completa a la
@@ -30,8 +38,9 @@ licencia y SHA256 por archivo. `build.ps1` comprueba **todos** esos hashes antes
 de producir el instalador NSIS en `desktop/dist/`. Si falta un archivo o aparece
 uno no registrado, detiene el empaquetado.
 
-El instalador de esta demo carece de firma de código. Verificar su SHA256 en
-`docs/demo-status.md` antes de ejecutarlo en la PC definitiva.
+El instalador de esta demo carece de firma de código. Verificar su SHA256 con
+`VERIFICAR.ps1` y `CHECKSUMS.sha256` de la carpeta de entrega antes de
+ejecutarlo en la PC definitiva.
 
 `prepare_model_pack.py` obtiene revisiones fijadas de
 `Systran/faster-whisper-small` y la GGUF QAT Q4_0 oficial de Gemma 4 E2B. El
@@ -57,12 +66,12 @@ Requisitos: Windows 10 u 11 de 64 bits, unos 10 GB libres (≈2,5 GB de la app y
 3,6 GB de modelos) y, para el motor local, una GPU NVIDIA con driver actual.
 Sin GPU se puede operar con la ruta de nube de Gemini.
 
-1. Ejecutar `OmniStage Setup 0.1.3.exe`. Windows pide permiso de administrador
+1. Ejecutar `OmniStage Setup 0.1.4.exe`. Windows pide permiso de administrador
    una sola vez: el instalador crea la regla de firewall **OmniStage publico
    LAN** (TCP 8088, solo redes Privadas) y la borra al desinstalar. Como el
    instalador no está firmado, SmartScreen muestra "Windows protegió su PC":
    **Más información → Ejecutar de todas formas**, después de verificar el
-   SHA256 publicado en `docs/demo-status.md`.
+   SHA256 de `CHECKSUMS.sha256` con `VERIFICAR.ps1`.
 2. Al terminar, OmniStage se abre solo (también queda en el Escritorio y en el
    menú Inicio). Crear la cuenta inicial de operador con una contraseña de al
    menos 12 caracteres.
@@ -70,7 +79,8 @@ Sin GPU se puede operar con la ruta de nube de Gemini.
    - **Modelos locales → Descargar modelos.** Baja 3,6 GB de Hugging Face en
      revisiones fijadas y verifica el SHA256 de cada archivo antes de
      instalarlo. Se puede pausar; si se corta, retoma desde donde quedó. Sin
-     internet, usar **Importar desde una carpeta** con `desktop/model-pack/`.
+     internet, usar **Importar desde una carpeta** con `model-pack/` de la
+     carpeta de entrega.
    - **Servicios**: MediaMTX, Gemma, backend y vista pública en *Activo*.
    - **Acceso del público**: muestra la URL LAN (`http://IP_DE_LA_PC:8088`),
      comprueba la regla de firewall y avisa si Windows marcó la red como

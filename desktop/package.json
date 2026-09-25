@@ -1,12 +1,12 @@
 {
   "name": "omnistage-desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis",
-    "test": "node --test model-download.test.cjs agent-a-gemini/cloud-key.test.cjs agent-b-outputs/manager.test.cjs agent-b-outputs/obs-client.test.cjs"
+    "test": "node --test model-download.test.cjs local-model.test.cjs agent-a-gemini/cloud-key.test.cjs agent-b-outputs/manager.test.cjs agent-b-outputs/obs-client.test.cjs"
   },
   "devDependencies": {
     "electron": "^44.4.5",
@@ -21,6 +21,8 @@
       "stages.cjs",
       "preload.cjs",
       "model-download.cjs",
+      "local-model.cjs",
+      "splash.html",
       "agent-a-gemini/cloud-key.cjs",
       "agent-b-outputs/manager.cjs",
       "agent-b-outputs/obs-client.cjs",

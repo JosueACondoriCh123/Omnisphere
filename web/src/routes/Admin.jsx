@@ -6,6 +6,7 @@ import { useStageOptions } from "../lib/useStageOptions.js";
 import BroadcastPanel from "../components/BroadcastPanel.jsx";
 import OperatorSidebar from "../components/OperatorSidebar.jsx";
 import SetupGuide from "../components/SetupGuide.jsx";
+import ModelConsole from "../components/ModelConsole.jsx";
 
 async function api(path, options = {}, csrf = "") {
   const response = await fetch(path, {
@@ -241,20 +242,13 @@ function Operations({ user, onLogout }) {
     } catch (exc) { setLoadError(exc.message); }
   }
 
-  async function importModels() {
-    try {
-      const result = await desktop.importModels();
-      if (result) setDesktopStatus(await desktop.status());
-      setLoadError("");
-    } catch (exc) { setLoadError(exc.message); }
-  }
-
   const titles = {
     overview: ['Resumen del evento', 'Señal, proveedor y alertas de hasta diez salas.'],
     rooms: ['Salas y sesiones', 'Prepará las fuentes y verificá los permisos.'],
     broadcasts: ['Transmisiones', 'Una salida externa por sala, con idioma elegido.'],
     archive: ['Archivo', 'Consultá y exportá las cláusulas confirmadas.'],
     integrations: ['Integraciones', 'Configurá Gemini, el proveedor y los modelos.'],
+    models: ['Modelos locales', 'Instalá, iniciá y probá Gemma desde el escritorio.'],
     system: ['Sistema y operadores', 'Servicios, equipo y cuentas individuales.'],
     setup: ['Primeros pasos', 'Dejá lista esta computadora para el evento.'],
   };
@@ -301,6 +295,8 @@ function Operations({ user, onLogout }) {
         {page === 'rooms' && <><SessionForm csrf={user.csrf_token} onCreated={refresh} desktop={desktop} stages={stages} />{sessionList}</>}
         {page === 'archive' && sessionList}
         {page === 'broadcasts' && <BroadcastPanel desktop={desktop} />}
+        {page === 'models' && <ModelConsole desktop={desktop} status={desktopStatus} provider={provider} onMode={setMode}
+          onChanged={async () => setDesktopStatus(await desktop.status())} />}
         {page === 'integrations' && <section className="operator-panel"><p className="section-index">GEMINI</p><h2>Clave de nube</h2>
           <p className="input-hint">Estado: <strong>{cloudKey.configured && ['invalid', 'offline'].includes(cloudKey.state)
             ? 'Clave anterior activa; nueva clave sin validar'
@@ -318,10 +314,7 @@ function Operations({ user, onLogout }) {
       </div>
       <aside className="operator-side">
         {(page === 'overview' || page === 'integrations') && providerPanel}
-        {page === 'integrations' && <section className="operator-panel"><p className="section-index">MODELOS</p><h2>Motor local</h2>
-          {desktopStatus ? <dl className="system-status">{Object.entries(desktopStatus.models || {}).map(([name, value]) => <div key={name}><dt>{name}</dt><dd data-on={value ? '1' : '0'}>{value ? 'Instalado' : 'Falta instalar'}</dd></div>)}</dl> : <p className="input-hint">Estado disponible desde la app de escritorio.</p>}
-          {desktop && <button className="glass-button glass-button-secondary" type="button" onClick={importModels}>Importar paquete de modelos</button>}
-        </section>}
+        {page === 'integrations' && <section className="operator-panel"><p className="section-index">MODELOS</p><h2>Motor local</h2><p className="input-hint">Instalación, estado y prueba de traducción en un panel dedicado.</p><Link className="glass-button glass-button-secondary" to="/operator/models">Abrir modelos locales</Link></section>}
         {page === 'integrations' && <section className="operator-panel"><p className="section-index">OBS</p><h2>Salidas de video</h2>
           <p className="input-hint">Instalación en la ruta habitual: {desktopStatus?.obsInstalled ? 'Detectada' : 'No detectada'}. Cada salida RTMP activa necesita su instancia OBS y un puerto WebSocket distinto.</p>
           <a href="https://obsproject.com/download" target="_blank" rel="noreferrer">Descargar OBS Studio ↗</a>

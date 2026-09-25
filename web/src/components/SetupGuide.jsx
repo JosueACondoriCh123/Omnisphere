@@ -67,6 +67,7 @@ export default function SetupGuide({ desktop, desktopStatus, cloudKey, onChanged
         <p className="input-hint">Creada. Para sumar más operadores, entrá en <Link to="/operator/system">Sistema y operadores</Link>.</p>
       </Step>
       <Step index={2} title="Modelos locales" state={modelsReady ? "done" : "pending"}>
+        <p className="input-hint">Para ver el estado y probar Gemma, abrí <Link to="/operator/models">Modelos locales</Link>.</p>
         {modelsReady ? <p className="input-hint">faster-whisper y Gemma 4 E2B instalados y verificados.</p> : <>
           <p className="input-hint">Hacen falta para transcribir y traducir sin internet. Son {gb(MODEL_BYTES)} GB desde Hugging Face y se verifica el SHA256 de cada archivo. Si la descarga se corta, retoma desde donde quedó.</p>
           {busy && <div className="setup-progress">

@@ -72,13 +72,14 @@ En producción, sustituir `<IP_DE_LA_PC>` por la dirección IP de la máquina de
 ### 1. Aplicación de Escritorio Nativa (Windows)
 OmniStage no requiere Docker ni Redis en producción. El instalador empaqueta la API, los workers asíncronos, MediaMTX, FFmpeg, llama.cpp y dependencias CUDA.
 
-**Descargar esta entrega:** en la carpeta compartida del proyecto, copiar a la PC de destino el archivo `desktop/release/OmniStage-0.1.4-sin-modelos.7z` (856 MiB). El `.7z` contiene el instalador de Windows, instrucciones y un verificador SHA256. Los binarios de `desktop/release/` no se suben a Git; si estás leyendo este README en el repositorio, necesitás obtener el archivo desde la carpeta de entrega o pedir el enlace de distribución al equipo.
+**Descargar esta entrega (Windows x64):**
+- [**Descargar instalador OmniStage Setup 0.1.4.exe**](https://github.com/JosueACondoriCh123/Omnistage/releases/download/V0.1.4/OmniStage.Setup.0.1.4.exe) (~885 MB)
+- [Ver Release y sumas de verificación en GitHub](https://github.com/JosueACondoriCh123/Omnistage/releases/tag/V0.1.4)
+- [Archivos de verificación en el repositorio](desktop/release/OmniStage-0.1.4-sin-modelos/)
 
-En GitHub podés consultar la [carpeta de entregas](desktop/release/README.md) y sus archivos de verificación. Para ofrecer una descarga pública, adjuntá el `.7z` a una **GitHub Release** y enlazá allí el archivo; no está publicado como descarga pública todavía.
-
-1. Extraer el `.7z` con 7-Zip u otro programa compatible.
-2. Abrir PowerShell en la carpeta extraída y ejecutar `powershell -ExecutionPolicy Bypass -File .\VERIFICAR.ps1`.
-3. Ejecutar `OmniStage Setup 0.1.4.exe` como administrador y crear la cuenta inicial al abrir la app.
+1. Descargar `OmniStage.Setup.0.1.4.exe` desde la release.
+2. Comprobar la integridad con `CHECKSUMS.sha256` y `VERIFICAR.ps1`.
+3. Ejecutar el instalador como administrador y crear la cuenta inicial al abrir la app.
 4. Entrar en **Modelos locales** para descargarlos o importar una carpeta de modelos aparte; el instalador comprimido no incluye los pesos de Gemma ni faster-whisper.
 5. Esperar el estado **Motor activo** de Gemma y usar **Ejecutar prueba** antes de conectar una sala.
 
